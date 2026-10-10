@@ -12,6 +12,8 @@
  *     1. Embed the question, hybrid-search this workspace's passages in Qdrant.
  *     2. Send the passages + question to OpenAI and stream the answer back
  *        (the chat route turns it into AG-UI events for the browser).
+ *     3. The model may instead call a form tool: fill in a form template from
+ *        what was said, or draft a new template. That becomes a form card.
  */
 import "server-only";
 import { after } from "next/server";
@@ -19,6 +21,7 @@ import { completeIngestion } from "@/lib/data/documents";
 import { env } from "@/lib/env";
 import { extractPages } from "@/lib/extract";
 import { embed, respond, streamChat } from "./openai/client";
+import { attachmentFromToolCall, formRules, formTools } from "./openai/form-tools";
 import { BASE_RULES, DIGEST_INSTRUCTIONS, MODE_PROMPTS, TRANSCRIBE_INSTRUCTIONS } from "./openai/prompts";
 import { buildPassages, deleteDocumentPoints, hybridSearch, keywordVector, savePoints } from "./openai/search-index";
 import type { AiBackend, AnswerRequest, IngestRequest } from "./types";
@@ -183,12 +186,31 @@ export const openaiBackend: AiBackend = {
       });
     }
 
-    yield* streamChat({
+    const templates = request.formTemplates;
+    let wroteText = false;
+    let card: ReturnType<typeof attachmentFromToolCall> = null;
+    for await (const part of streamChat({
       model: mode.deep ? env.OPENAI_MODEL_DEEP : env.OPENAI_MODEL,
       reasoningEffort: mode.deep ? "medium" : "low",
-      system: `${BASE_RULES}\n\n${mode.instructions}`,
+      system: `${BASE_RULES}\n\n${mode.instructions}\n\n${formRules(templates, new Date())}`,
       user: buildPrompt(request, hits),
+      tools: formTools(templates),
       signal: request.signal,
-    });
+    })) {
+      if (part.type === "text") {
+        wroteText = true;
+        yield part.text;
+      } else {
+        card ??= attachmentFromToolCall(part, templates); // one form card per answer
+      }
+    }
+
+    if (card) {
+      if (!wroteText) yield card.text; // the model only called the tool: explain the card
+      yield { form: card.form };
+    } else if (!wroteText) {
+      // A tool call that couldn't be used, and no text: say so instead of an empty answer.
+      yield "I couldn't prepare that form from the request. Please say which form and the details again.";
+    }
   },
 };

@@ -10,7 +10,9 @@
  * between them is a single setting (AI_BACKEND in .env).
  */
 import { z } from "zod";
+import type { FormAttachment } from "@/lib/forms";
 import type { ResponseModeId } from "@/lib/response-modes";
+import type { FormTemplateDTO } from "@/lib/types";
 
 /** Everything the backend needs to index one uploaded file. */
 export interface IngestRequest {
@@ -37,9 +39,14 @@ export interface AnswerRequest {
   history: ChatTurn[];
   /** File names in the workspace, so the AI can tell what exists vs. what's missing. */
   documentNames: string[];
+  /** Form templates the AI may fill in (or it may draft a new one). */
+  formTemplates: FormTemplateDTO[];
   /** Fires if the CEO stops the answer or closes the page. */
   signal: AbortSignal;
 }
+
+/** A piece of an answer: text, or a form card to show with it. */
+export type AnswerChunk = string | { form: FormAttachment };
 
 export interface AiBackend {
   /**
@@ -52,8 +59,11 @@ export interface AiBackend {
   /** Remove a document's chunks from the search index. */
   removeDocument(input: { documentId: string; workspaceId: string }): Promise<void>;
 
-  /** Stream the answer as text pieces, in order. */
-  streamAnswer(request: AnswerRequest): AsyncIterable<string>;
+  /**
+   * Stream the answer: text pieces in order, and optionally one form card
+   * (a filled form or a new template draft) after the text.
+   */
+  streamAnswer(request: AnswerRequest): AsyncIterable<AnswerChunk>;
 }
 
 /**

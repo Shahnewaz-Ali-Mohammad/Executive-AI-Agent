@@ -6,7 +6,7 @@
  * list of sources they cite. Every message shows when it was sent, and a
  * divider marks each new day.
  */
-import { Fragment, useEffect, useRef } from "react";
+import { Fragment, useEffect, useRef, type ReactNode } from "react";
 import type { ChatMessage } from "@/hooks/use-executive-chat";
 import { extractCitations, type CitableDocument, type Citation } from "@/lib/citations";
 import { formatDateTime, formatDayLabel, formatFullDateTime, isSameDay } from "@/lib/dates";
@@ -21,6 +21,8 @@ interface MessageListProps {
   isRunning: boolean;
   activity: string | null;
   onOpenCitation: (documentId: string, page: number) => void;
+  /** Renders the form card attached to an answer, if it has one. */
+  renderForm?: (messageId: string) => ReactNode;
 }
 
 export function MessageList({
@@ -30,6 +32,7 @@ export function MessageList({
   isRunning,
   activity,
   onOpenCitation,
+  renderForm,
 }: MessageListProps) {
   const endRef = useRef<HTMLDivElement>(null);
   const lastMessage = messages.at(-1);
@@ -79,6 +82,7 @@ export function MessageList({
               </div>
               {!isStreaming && (
                 <>
+                  {renderForm?.(message.id)}
                   <SourceList citations={messageCitations} onOpenCitation={onOpenCitation} />
                   <div className="mt-2">
                     <Timestamp iso={message.createdAt} />

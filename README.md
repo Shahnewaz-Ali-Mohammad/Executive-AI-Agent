@@ -44,6 +44,13 @@ documents stay on your own server.
 - **File library**: search, filter by Images / PDFs / Office files, real
   thumbnails for photos and scans, a picture grid for images, and the upload
   date and time of every file.
+- **Forms filled in from the chat**: say *"Fill a leave request for Rahim
+  from Finance, sick leave 12–14 October"* and the matching form appears in
+  the chat already filled in. Missing required fields are flagged and asked
+  for; nothing is stored until you check it and press **Save**. Describe a new
+  form (*"Create a visitor log form with name, company, host and purpose"*)
+  and the template is drafted for you. Saved forms and templates live in the
+  **Forms** tab, where they can be searched, opened, corrected and edited.
 - **Upload digest**: each document gets a three-sentence summary of what it is
   and what needs attention.
 - **Voice input**: the browser's dictation, with OpenAI transcription as a
@@ -155,6 +162,9 @@ automatically when the app starts.
 | Write an email or memo | **Draft** |
 | Check a claim | Click its citation; the page opens beside the chat |
 | Start a fresh topic | **New conversation**; earlier ones stay in the list |
+| Fill in a form | Describe it in the chat ("Fill an expense claim: taxi to the airport, 1,200 BDT, yesterday"), check the card, press **Save** |
+| Create a form | Describe it in the chat ("Create a vendor onboarding form with …"), press **Save template** |
+| Find a saved form | **Forms** tab: search, filter by form, open to correct it |
 
 ## Configuration
 
@@ -170,7 +180,9 @@ automatically when the app starts.
 | `QDRANT_URL` | Where the app reaches Qdrant | `http://localhost:6333` |
 
 The assistant's rules and the instructions for each answer mode are in
-`web/src/lib/ai-backend/openai/prompts.ts`.
+`web/src/lib/ai-backend/openai/prompts.ts`; the rules for forms are in
+`web/src/lib/ai-backend/openai/form-tools.ts`. Forms are filled by the
+`openai` backend.
 
 ## Project structure
 

@@ -4,11 +4,11 @@
  * The whole app screen. It owns the state and wires the pieces together:
  *
  *   ┌──────────────────┬──────────────────────────┬────────────────────┐
- *   │ Workspace ▾      │ Conversation             │ Source viewer      │
- *   │ + New convers.   │ answers with citations,  │ (opens on a        │
- *   │ [Chats | Files]  │ date and time on each    │  citation or file  │
- *   │ grouped, search- │ question box + modes     │  click)            │
- *   │ able lists       │                          │                    │
+ *   │ Workspace ▾      │ Conversation             │ Right panel:       │
+ *   │ + New convers.   │ answers with citations,  │ - source document  │
+ *   │ [Chats|Files|    │ form cards, date and     │ - saved form       │
+ *   │  Forms] grouped, │ time on each message;    │ - template editor  │
+ *   │ searchable lists │ question box + modes     │                    │
  *   └──────────────────┴──────────────────────────┴────────────────────┘
  *
  * On phones the library becomes a slide-in drawer and the viewer covers the
@@ -21,12 +21,17 @@ import { Composer } from "@/components/chat/composer";
 import { ConversationList } from "@/components/library/conversation-list";
 import { EmptyState } from "@/components/chat/empty-state";
 import { MessageList } from "@/components/chat/message-list";
+import { FormCard } from "@/components/chat/form-card";
+import { FormsPanel } from "@/components/forms/forms-panel";
+import { SubmissionPanel } from "@/components/forms/submission-panel";
+import { TemplateEditor } from "@/components/forms/template-editor";
 import { DocumentLibrary } from "@/components/library/document-library";
 import { WorkspaceSwitcher } from "@/components/library/workspace-switcher";
 import { IconButton } from "@/components/ui/button";
 import { SourceViewer } from "@/components/viewer/source-viewer";
 import { useConversations, type ChatSession } from "@/hooks/use-conversations";
 import { useDocuments } from "@/hooks/use-documents";
+import { useForms } from "@/hooks/use-forms";
 import { useExecutiveChat } from "@/hooks/use-executive-chat";
 import { useWorkspaces } from "@/hooks/use-workspaces";
 import { api } from "@/lib/api-client";
@@ -35,12 +40,13 @@ import type { DocumentDTO, WorkspaceDTO } from "@/lib/types";
 import { DEFAULT_RESPONSE_MODE, type ResponseModeId } from "@/lib/response-modes";
 import { cn } from "@/lib/utils";
 
-type SidebarTab = "chats" | "files";
+type SidebarTab = "chats" | "files" | "forms";
 
-interface ViewerTarget {
-  documentId: string;
-  page: number;
-}
+/** What the right-hand panel shows. */
+type RightPanel =
+  | { kind: "source"; documentId: string; page: number }
+  | { kind: "submission"; submissionId: string }
+  | { kind: "template"; templateId: string | null }; // null = new template
 
 export function ExecutiveApp() {
   const workspaces = useWorkspaces();
@@ -90,8 +96,9 @@ function WorkspaceScreen({ workspace, workspaces, mode, onModeChange }: Workspac
   const workspaceId = workspace.id;
   const docs = useDocuments(workspaceId);
   const convs = useConversations(workspaceId);
+  const forms = useForms(workspaceId);
 
-  const [viewer, setViewer] = useState<ViewerTarget | null>(null);
+  const [panel, setPanel] = useState<RightPanel | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false); // phones only
   const [tab, setTab] = useState<SidebarTab>("chats");
   // One file picker for the whole screen: the sidebar, the empty state and the
@@ -109,10 +116,18 @@ function WorkspaceScreen({ workspace, workspaces, mode, onModeChange }: Workspac
   }
 
   const openSource = useCallback((documentId: string, page: number) => {
-    setViewer({ documentId, page });
+    setPanel({ kind: "source", documentId, page });
     setLibraryOpen(false);
   }, []);
-  const closeSource = useCallback(() => setViewer(null), []);
+  const openSubmission = useCallback((submissionId: string) => {
+    setPanel({ kind: "submission", submissionId });
+    setLibraryOpen(false);
+  }, []);
+  const openTemplate = useCallback((templateId: string | null) => {
+    setPanel({ kind: "template", templateId });
+    setLibraryOpen(false);
+  }, []);
+  const closePanel = useCallback(() => setPanel(null), []);
 
   async function handleLogout() {
     await api.logout().catch(() => undefined);
@@ -169,6 +184,7 @@ function WorkspaceScreen({ workspace, workspaces, mode, onModeChange }: Workspac
             [
               { id: "chats", label: "Chats", count: convs.conversations.length },
               { id: "files", label: "Files", count: docs.documents.length },
+              { id: "forms", label: "Forms", count: forms.submissions.length },
             ] as const
           ).map((item) => (
             <button
@@ -208,16 +224,27 @@ function WorkspaceScreen({ workspace, workspaces, mode, onModeChange }: Workspac
               onRename={convs.rename}
               onDelete={convs.remove}
             />
-          ) : (
+          ) : tab === "files" ? (
             <DocumentLibrary
               documents={docs.documents}
               loading={docs.loading}
               uploading={docs.uploading}
-              openDocumentId={viewer?.documentId ?? null}
+              openDocumentId={panel?.kind === "source" ? panel.documentId : null}
               onPickFiles={() => fileInputRef.current?.click()}
               onDropFiles={uploadFiles}
               onOpen={(id) => openSource(id, 1)}
               onDelete={docs.remove}
+            />
+          ) : (
+            <FormsPanel
+              templates={forms.templates}
+              submissions={forms.submissions}
+              loading={forms.loading}
+              openSubmissionId={panel?.kind === "submission" ? panel.submissionId : null}
+              openTemplateId={panel?.kind === "template" ? panel.templateId : null}
+              onOpenSubmission={openSubmission}
+              onOpenTemplate={openTemplate}
+              onNewTemplate={() => openTemplate(null)}
             />
           )}
         </div>
@@ -264,6 +291,10 @@ function WorkspaceScreen({ workspace, workspaces, mode, onModeChange }: Workspac
           mode={mode}
           onModeChange={onModeChange}
           onOpenSource={openSource}
+          conversationId={convs.activeId}
+          onFormsSaved={forms.refresh}
+          onOpenSubmission={openSubmission}
+          onOpenTemplate={openTemplate}
           onOpenMenu={() => setLibraryOpen(true)}
           onAttach={() => fileInputRef.current?.click()}
         />
@@ -273,18 +304,108 @@ function WorkspaceScreen({ workspace, workspaces, mode, onModeChange }: Workspac
         </main>
       )}
 
-      {/* ---------------- Source viewer ---------------- */}
-      {viewer && (
+      {/* ---------------- Right panel ---------------- */}
+      {panel && (
         <div className="fixed inset-0 z-50 lg:static lg:z-auto lg:w-[min(46vw,46rem)] lg:shrink-0 lg:border-l lg:border-rule">
-          <SourceViewer
-            key={viewer.documentId}
-            document={docs.documents.find((doc) => doc.id === viewer.documentId)}
-            page={viewer.page}
-            onPageChange={(page) => setViewer({ ...viewer, page })}
-            onClose={closeSource}
+          <RightPanelContent
+            panel={panel}
+            documents={docs.documents}
+            forms={forms}
+            onPanelChange={setPanel}
+            onClose={closePanel}
+            onOpenConversation={(conversationId) => {
+              setTab("chats");
+              if (conversationId !== convs.activeId) convs.open(conversationId);
+              closePanel();
+            }}
           />
         </div>
       )}
+    </div>
+  );
+}
+
+/** The right-hand panel: a source document, a saved form, or the template editor. */
+function RightPanelContent({
+  panel,
+  documents,
+  forms,
+  onPanelChange,
+  onClose,
+  onOpenConversation,
+}: {
+  panel: RightPanel;
+  documents: DocumentDTO[];
+  forms: ReturnType<typeof useForms>;
+  onPanelChange: (panel: RightPanel) => void;
+  onClose: () => void;
+  onOpenConversation: (conversationId: string) => void;
+}) {
+  if (panel.kind === "source") {
+    return (
+      <SourceViewer
+        key={panel.documentId}
+        document={documents.find((doc) => doc.id === panel.documentId)}
+        page={panel.page}
+        onPageChange={(page) => onPanelChange({ ...panel, page })}
+        onClose={onClose}
+      />
+    );
+  }
+
+  if (panel.kind === "submission") {
+    const submission = forms.submissions.find((s) => s.id === panel.submissionId);
+    if (!submission) {
+      return <MissingItem text={forms.loading ? "Loading…" : "This saved form no longer exists."} onClose={onClose} />;
+    }
+    const conversationId = submission.conversationId;
+    return (
+      <SubmissionPanel
+        key={submission.id}
+        submission={submission}
+        onSave={(values) => forms.updateSubmission(submission.id, values)}
+        onDelete={async () => {
+          await forms.deleteSubmission(submission.id);
+          onClose();
+        }}
+        onClose={onClose}
+        onOpenConversation={conversationId ? () => onOpenConversation(conversationId) : undefined}
+      />
+    );
+  }
+
+  const template = panel.templateId ? forms.templates.find((t) => t.id === panel.templateId) : null;
+  if (panel.templateId && !template) {
+    return <MissingItem text={forms.loading ? "Loading…" : "This template no longer exists."} onClose={onClose} />;
+  }
+  return (
+    <TemplateEditor
+      key={panel.templateId ?? "new"}
+      template={template ?? null}
+      onSave={async (input) => {
+        const saved = await forms.saveTemplate(panel.templateId, input);
+        if (!panel.templateId) onPanelChange({ kind: "template", templateId: saved.id }); // now editing the new one
+      }}
+      onDelete={
+        template
+          ? async () => {
+              await forms.deleteTemplate(template.id);
+              onClose();
+            }
+          : undefined
+      }
+      onClose={onClose}
+    />
+  );
+}
+
+function MissingItem({ text, onClose }: { text: string; onClose: () => void }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 bg-surface p-8 text-sm text-slate">
+      <p>{text}</p>
+      <button type="button" onClick={onClose} className="text-ledger underline-offset-2 hover:underline">
+        Close
+      </button>
     </div>
   );
 }
@@ -304,6 +425,11 @@ interface ChatPanelProps {
   mode: ResponseModeId;
   onModeChange: (mode: ResponseModeId) => void;
   onOpenSource: (documentId: string, page: number) => void;
+  /** The saved conversation on screen (null until the first question). */
+  conversationId: string | null;
+  onFormsSaved: () => void;
+  onOpenSubmission: (submissionId: string) => void;
+  onOpenTemplate: (templateId: string) => void;
   onOpenMenu: () => void;
   onAttach: () => void;
 }
@@ -323,6 +449,10 @@ function ChatPanel({
   mode,
   onModeChange,
   onOpenSource,
+  conversationId,
+  onFormsSaved,
+  onOpenSubmission,
+  onOpenTemplate,
   onOpenMenu,
   onAttach,
 }: ChatPanelProps) {
@@ -384,6 +514,22 @@ function ChatPanel({
             isRunning={chat.isRunning}
             activity={chat.activity}
             onOpenCitation={onOpenSource}
+            renderForm={(messageId) => {
+              const form = chat.forms[messageId];
+              if (!form) return null;
+              return (
+                <FormCard
+                  form={form}
+                  messageId={messageId}
+                  workspaceId={workspaceId}
+                  conversationId={conversationId}
+                  onUpdated={(updated) => chat.updateForm(messageId, updated)}
+                  onSaved={onFormsSaved}
+                  onOpenSubmission={onOpenSubmission}
+                  onOpenTemplate={onOpenTemplate}
+                />
+              );
+            }}
           />
         )}
       </div>

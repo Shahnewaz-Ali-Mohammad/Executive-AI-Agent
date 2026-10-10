@@ -197,6 +197,10 @@ All routes require login, except those marked public.
 | `GET/POST /api/workspaces/:id/conversations` | Saved conversations (newest first) / start one |
 | `PATCH/DELETE /api/conversations/:id` | Rename / delete a conversation (documents are kept) |
 | `GET /api/conversations/:id/messages` | A conversation's messages |
+| `GET/POST /api/forms/templates` | Form templates / create one |
+| `PATCH/DELETE /api/forms/templates/:id` | Edit / delete a template (saved forms are kept) |
+| `GET/POST /api/workspaces/:id/forms` | Saved forms in a workspace / save a filled form |
+| `GET/PATCH/DELETE /api/forms/submissions/:id` | One saved form / correct it / delete it |
 | `GET/DELETE /api/documents/:id` | Details / delete |
 | `GET /api/documents/:id/file` | Original file (`?download=1` to download) |
 | `GET /api/documents/:id/pages/:n` | Parsed text of one page |
@@ -215,7 +219,10 @@ documents       id, workspace_id→, file_name, mime_type, size_bytes, storage_k
 document_pages  id, document_id→, page_number, content          (unique doc+page)
 conversations   id, workspace_id→, title, created_at, updated_at
 chat_messages   id (AG-UI message id), workspace_id→, conversation_id→, role,
-                content, mode, citations(jsonb), created_at
+                content, mode, citations(jsonb), form(jsonb: form card), created_at
+form_templates  id, name, description, fields(jsonb), created_at, updated_at
+form_submissions id, template_id→ (set null), workspace_id→, conversation_id→,
+                template_name, fields(jsonb copy), values(jsonb), created_at, updated_at
 ```
 
 A workspace holds many conversations. "New conversation" starts a fresh one,
@@ -255,3 +262,27 @@ and demo the interface without any API keys.
 - **Settings in `.env`, read via `$env` in n8n.** One file configures
   everything, and only the OpenAI credential exists inside n8n (recreated from
   `.env` on every start).
+
+## Forms
+
+Forms turn something said in the chat into a structured, saved record.
+
+- **Templates** (`form_templates`) hold a name and a list of fields: label,
+  type (short text, long text, number, date, dropdown, yes/no, email, phone),
+  required, dropdown choices and a hint. They are shared by all workspaces.
+- **Filling**: with every question, the OpenAI backend offers one tool per
+  template whose arguments are exactly that template's fields, in strict mode
+  (every field present, unknown values `null`, dropdowns limited to their
+  choices). When the CEO asks to fill a form, the model calls that tool using
+  only what was said in the conversation. The result is checked against the
+  template (`lib/forms.ts`) and sent to the browser as an AG-UI `CUSTOM`
+  event named `form`, after the answer text.
+- **Follow-ups**: history is loaded from the database and each form card is
+  included as a short line (`[Form "Leave request" (not saved yet) — …]`), so
+  "the department is Finance" produces an updated card with all values.
+- **Creating templates**: a `create_form_template` tool drafts a template from
+  a description; it is saved only when the CEO presses **Save template**.
+- **Saving**: the card's values are validated in the browser and again on the
+  server. A saved form (`form_submissions`) keeps its own copy of the fields,
+  so editing or deleting the template later never changes it. The card's chat
+  message is updated so reopening the conversation shows it as saved.

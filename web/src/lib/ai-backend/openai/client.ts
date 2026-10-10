@@ -2,7 +2,7 @@
  * Minimal OpenAI API calls used by the direct backend (plain fetch, no SDK):
  *   - embed()        → /embeddings
  *   - respond()      → /responses (reading scans, writing digests)
- *   - streamChat()   → /chat/completions with stream: true (answers)
+ *   - streamChat()   → /chat/completions with stream: true (answers, form tools)
  */
 import "server-only";
 import { env } from "@/lib/env";
@@ -66,14 +66,41 @@ export async function respond(body: Record<string, unknown>, signal?: AbortSigna
     .join("\n");
 }
 
-/** Stream a chat answer from Chat Completions, yielding text pieces as they arrive. */
+/** A function the model may call instead of (or as well as) writing text. */
+export interface ChatTool {
+  name: string;
+  description: string;
+  /** JSON Schema of the arguments (strict mode: every property required, no extras). */
+  parameters: Record<string, unknown>;
+}
+
+/** What the answer stream yields: text as it arrives, then any tool call once complete. */
+export type ChatStreamPart =
+  | { type: "text"; text: string }
+  | { type: "tool_call"; name: string; arguments: string };
+
+interface ChatChunk {
+  choices?: {
+    delta?: {
+      content?: string | null;
+      tool_calls?: { index: number; function?: { name?: string; arguments?: string } }[];
+    };
+  }[];
+}
+
+/**
+ * Stream a chat answer from Chat Completions. Text is yielded as it arrives;
+ * tool calls arrive in pieces too, so they're collected and yielded at the end.
+ */
 export async function* streamChat(options: {
   model: string;
   reasoningEffort: "low" | "medium" | "high";
   system: string;
   user: string;
+  tools?: ChatTool[];
   signal: AbortSignal;
-}): AsyncGenerator<string> {
+}): AsyncGenerator<ChatStreamPart> {
+  const tools = options.tools ?? [];
   const response = await post(
     "/chat/completions",
     {
@@ -84,10 +111,20 @@ export async function* streamChat(options: {
         { role: "system", content: options.system },
         { role: "user", content: options.user },
       ],
+      ...(tools.length > 0
+        ? {
+            tools: tools.map((tool) => ({
+              type: "function",
+              function: { name: tool.name, description: tool.description, parameters: tool.parameters, strict: true },
+            })),
+          }
+        : {}),
     },
     options.signal,
   );
   if (!response.body) throw new Error("OpenAI sent an empty reply.");
+
+  const calls = new Map<number, { name: string; arguments: string }>();
 
   // Server-sent events: lines of "data: {json}", ending with "data: [DONE]".
   const reader = response.body.getReader();
@@ -103,13 +140,24 @@ export async function* streamChat(options: {
     for (const line of lines) {
       const data = line.trim().replace(/^data:\s*/, "");
       if (!line.trim().startsWith("data:") || !data || data === "[DONE]") continue;
+      let chunk: ChatChunk;
       try {
-        const chunk = JSON.parse(data) as { choices?: { delta?: { content?: string } }[] };
-        const text = chunk.choices?.[0]?.delta?.content;
-        if (text) yield text;
+        chunk = JSON.parse(data) as ChatChunk;
       } catch {
-        // Ignore keep-alive or partial lines.
+        continue; // keep-alive or partial line
+      }
+      const delta = chunk.choices?.[0]?.delta;
+      if (delta?.content) yield { type: "text", text: delta.content };
+      for (const call of delta?.tool_calls ?? []) {
+        const current = calls.get(call.index) ?? { name: "", arguments: "" };
+        current.name += call.function?.name ?? "";
+        current.arguments += call.function?.arguments ?? "";
+        calls.set(call.index, current);
       }
     }
+  }
+
+  for (const call of calls.values()) {
+    if (call.name) yield { type: "tool_call", name: call.name, arguments: call.arguments };
   }
 }

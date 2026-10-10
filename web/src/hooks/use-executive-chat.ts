@@ -8,6 +8,7 @@
  * and copy what the UI needs into React state:
  *   - messages        → the conversation
  *   - citations       → per assistant message, from the CUSTOM "citations" event
+ *   - forms           → per assistant message, from the CUSTOM "form" event (form cards)
  *   - activity        → "Reading your documents…" while the backend searches
  *   - error           → from RUN_ERROR or a failed request
  *
@@ -19,13 +20,16 @@ import { HttpAgent, type AgentSubscriber, type Message } from "@ag-ui/client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api-client";
 import type { Citation } from "@/lib/citations";
+import type { FormAttachment } from "@/lib/forms";
 import type { ChatSession } from "@/hooks/use-conversations";
 import type { ResponseModeId } from "@/lib/response-modes";
 import {
   CITATIONS_EVENT,
+  FORM_EVENT,
   type ChatForwardedProps,
   type ChatMessageDTO,
   type CitationsEventValue,
+  type FormEventValue,
 } from "@/lib/types";
 
 export interface ChatMessage {
@@ -74,6 +78,7 @@ export function useExecutiveChat({ workspaceId, session, ensureConversation, onA
   const timesRef = useRef(new Map<string, string>());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [citations, setCitations] = useState<Record<string, Citation[]>>({});
+  const [forms, setForms] = useState<Record<string, FormAttachment>>({});
   const [isRunning, setIsRunning] = useState(false);
   const [activity, setActivity] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -93,9 +98,13 @@ export function useExecutiveChat({ workspaceId, session, ensureConversation, onA
       onStepStartedEvent: ({ event }) => setActivity(STEP_LABELS[event.stepName] ?? "Working…"),
       onStepFinishedEvent: () => setActivity(null),
       onCustomEvent: ({ event }) => {
-        if (event.name !== CITATIONS_EVENT) return;
-        const value = event.value as CitationsEventValue;
-        setCitations((current) => ({ ...current, [value.messageId]: value.citations }));
+        if (event.name === CITATIONS_EVENT) {
+          const value = event.value as CitationsEventValue;
+          setCitations((current) => ({ ...current, [value.messageId]: value.citations }));
+        } else if (event.name === FORM_EVENT) {
+          const value = event.value as FormEventValue;
+          setForms((current) => ({ ...current, [value.messageId]: value.form }));
+        }
       },
       onRunErrorEvent: ({ event }) => setError(event.message),
       onRunFailed: ({ error }) => setError(error.message || "The assistant could not answer."),
@@ -113,6 +122,7 @@ export function useExecutiveChat({ workspaceId, session, ensureConversation, onA
           agent.setMessages(fromHistory(history));
           setMessages(toChatMessages(agent.messages, times));
           setCitations(Object.fromEntries(history.map((m) => [m.id, m.citations])));
+          setForms(Object.fromEntries(history.flatMap((m) => (m.form ? [[m.id, m.form]] : []))));
         })
         .catch((err) => !cancelled && setError(err instanceof Error ? err.message : "Could not load the chat."))
         .finally(() => !cancelled && setLoadingHistory(false));
@@ -162,9 +172,16 @@ export function useExecutiveChat({ workspaceId, session, ensureConversation, onA
     setActivity(null);
   }, []);
 
+  /** Update a form card after it was saved (so it shows as saved). */
+  const updateForm = useCallback((messageId: string, form: FormAttachment) => {
+    setForms((current) => ({ ...current, [messageId]: form }));
+  }, []);
+
   return {
     messages,
     citations,
+    forms,
+    updateForm,
     isRunning,
     activity,
     error,
