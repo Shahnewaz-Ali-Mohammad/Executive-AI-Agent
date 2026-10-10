@@ -7,18 +7,21 @@ responsible for, and the exact contracts between them.
 
 | Component | Responsibility | Lives in |
 |---|---|---|
-| **Next.js app** | Screens, login, original-file storage, app database, chat history, **AG-UI translator** (n8n text → AG-UI events) | `web/` |
-| **n8n** | All AI work: reading scans, chunking, embeddings, hybrid search, prompting, answers, digests | `n8n/workflows/` |
+| **Next.js app** | Screens, login, original-file storage, app database, saved conversations, **AG-UI translator** (backend text → AG-UI events) | `web/` |
+| **AI backend** | Reading scans, chunking, embeddings, hybrid search, prompting, answers, digests. Runs inside the app (`AI_BACKEND=openai`, `web/src/lib/ai-backend/openai-backend.ts`) or as n8n workflows (`AI_BACKEND=n8n`, `n8n/workflows/`); both follow the same steps | `web/src/lib/ai-backend/` |
 | **Qdrant** | Search index: one point per passage, with a dense and a sparse vector | Docker volume `qdrant_data` |
 | **Postgres** | Workspaces, documents, page texts, saved conversations and their messages (DB `executive_agent`); n8n's data (DB `n8n`) | Docker volume `postgres_data` |
 | **File readers** | PDF, Word, Excel, PowerPoint and text → per-page text, locally | `web/src/lib/extract/` |
 | **OpenAI** | Answers (`OPENAI_MODEL` / `_DEEP`), reading scans and photos and digests (`OPENAI_MODEL_FAST`), embeddings (`text-embedding-3-large`), voice fallback | OpenAI API |
 
-The browser never talks to n8n directly. The Next.js server is the only client
-of n8n. This keeps n8n private, avoids CORS, and puts login and access checks in
+The browser never talks to OpenAI, Qdrant or n8n directly. The Next.js server
+is their only client. This keeps n8n private, avoids CORS, and puts login and access checks in
 one place.
 
 ## 2. Upload → indexed document
+
+Shown here for `AI_BACKEND=n8n`. With `AI_BACKEND=openai` the same steps run
+inside the Next.js app (see section 8), without the webhook and callback.
 
 ```
 Browser                Next.js                         n8n "1. Ingest document"
