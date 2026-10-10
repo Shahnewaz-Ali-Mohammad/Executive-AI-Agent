@@ -3,12 +3,13 @@
 /**
  * The whole app screen. It owns the state and wires the pieces together:
  *
- *   ┌──────────────┬──────────────────────────┬────────────────────┐
- *   │ Library      │ Conversation             │ Source viewer      │
- *   │ workspaces   │ answers with citations   │ (opens on a        │
- *   │ conversations│ question box + modes     │  citation click)   │
- *   │ documents    │                          │                    │
- *   └──────────────┴──────────────────────────┴────────────────────┘
+ *   ┌──────────────────┬──────────────────────────┬────────────────────┐
+ *   │ Workspace ▾      │ Conversation             │ Source viewer      │
+ *   │ + New convers.   │ answers with citations,  │ (opens on a        │
+ *   │ [Chats | Files]  │ date and time on each    │  citation or file  │
+ *   │ grouped, search- │ question box + modes     │  click)            │
+ *   │ able lists       │                          │                    │
+ *   └──────────────────┴──────────────────────────┴────────────────────┘
  *
  * On phones the library becomes a slide-in drawer and the viewer covers the
  * screen, so each part gets the full width.
@@ -20,9 +21,8 @@ import { Composer } from "@/components/chat/composer";
 import { ConversationList } from "@/components/library/conversation-list";
 import { EmptyState } from "@/components/chat/empty-state";
 import { MessageList } from "@/components/chat/message-list";
-import { DocumentList } from "@/components/library/document-list";
-import { UploadDropzone } from "@/components/library/upload-dropzone";
-import { WorkspaceList } from "@/components/library/workspace-list";
+import { DocumentLibrary } from "@/components/library/document-library";
+import { WorkspaceSwitcher } from "@/components/library/workspace-switcher";
 import { IconButton } from "@/components/ui/button";
 import { SourceViewer } from "@/components/viewer/source-viewer";
 import { useConversations, type ChatSession } from "@/hooks/use-conversations";
@@ -30,9 +30,12 @@ import { useDocuments } from "@/hooks/use-documents";
 import { useExecutiveChat } from "@/hooks/use-executive-chat";
 import { useWorkspaces } from "@/hooks/use-workspaces";
 import { api } from "@/lib/api-client";
+import { FILE_INPUT_ACCEPT } from "@/lib/file-types";
 import type { DocumentDTO, WorkspaceDTO } from "@/lib/types";
 import { DEFAULT_RESPONSE_MODE, type ResponseModeId } from "@/lib/response-modes";
 import { cn } from "@/lib/utils";
+
+type SidebarTab = "chats" | "files";
 
 interface ViewerTarget {
   documentId: string;
@@ -90,7 +93,20 @@ function WorkspaceScreen({ workspace, workspaces, mode, onModeChange }: Workspac
 
   const [viewer, setViewer] = useState<ViewerTarget | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false); // phones only
+  const [tab, setTab] = useState<SidebarTab>("chats");
+  // One file picker for the whole screen: the sidebar, the empty state and the
+  // paperclip in the question box all open it.
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function uploadFiles(files: File[]) {
+    setTab("files"); // show the new files and their progress
+    void docs.upload(files);
+  }
+
+  function startNewConversation() {
+    setLibraryOpen(false);
+    convs.startNew();
+  }
 
   const openSource = useCallback((documentId: string, page: number) => {
     setViewer({ documentId, page });
@@ -124,8 +140,8 @@ function WorkspaceScreen({ workspace, workspaces, mode, onModeChange }: Workspac
           </IconButton>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto pb-4">
-          <WorkspaceList
+        <div className="space-y-2 pb-3">
+          <WorkspaceSwitcher
             workspaces={workspaces.workspaces}
             activeId={workspaceId}
             onSelect={(id) => {
@@ -136,35 +152,88 @@ function WorkspaceScreen({ workspace, workspaces, mode, onModeChange }: Workspac
             onRename={workspaces.rename}
             onDelete={workspaces.remove}
           />
+          <div className="px-3">
+            <button
+              type="button"
+              onClick={startNewConversation}
+              className="flex w-full items-center justify-center gap-2 rounded-md bg-ledger px-3 py-2 text-sm font-medium text-paper transition-opacity hover:opacity-90"
+            >
+              <SquarePen className="size-4" aria-hidden /> New conversation
+            </button>
+          </div>
+        </div>
 
-          <ConversationList
-            conversations={convs.conversations}
-            activeId={convs.activeId}
-            loading={convs.loading}
-            onSelect={(id) => {
-              setLibraryOpen(false);
-              if (id !== convs.activeId) convs.open(id);
-            }}
-            onNew={() => {
-              setLibraryOpen(false);
-              convs.startNew();
-            }}
-            onRename={convs.rename}
-            onDelete={convs.remove}
-          />
+        {/* Chats and Files each get the full height and scroll on their own. */}
+        <div role="tablist" aria-label="Sidebar" className="flex border-b border-rule px-3">
+          {(
+            [
+              { id: "chats", label: "Chats", count: convs.conversations.length },
+              { id: "files", label: "Files", count: docs.documents.length },
+            ] as const
+          ).map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              id={`tab-${item.id}`}
+              aria-selected={tab === item.id}
+              aria-controls={`panel-${item.id}`}
+              onClick={() => setTab(item.id)}
+              className={cn(
+                "-mb-px flex-1 border-b-2 px-2 py-2 text-sm transition-colors",
+                tab === item.id ? "border-ledger font-medium text-ink" : "border-transparent text-slate hover:text-ink",
+              )}
+            >
+              {item.label} <span className="text-xs tabular-nums text-slate">{item.count}</span>
+            </button>
+          ))}
+        </div>
 
-          <section aria-label="Documents" className="space-y-2">
-            <h2 className="px-4 text-xs font-medium text-slate">Documents in {workspace.name}</h2>
-            <UploadDropzone inputRef={fileInputRef} uploading={docs.uploading} onFiles={docs.upload} />
-            <DocumentList
+        <div
+          key={tab} // each tab starts at the top of its own list
+          role="tabpanel"
+          id={`panel-${tab}`}
+          aria-labelledby={`tab-${tab}`}
+          className="min-h-0 flex-1 overflow-y-auto py-3"
+        >
+          {tab === "chats" ? (
+            <ConversationList
+              conversations={convs.conversations}
+              activeId={convs.activeId}
+              loading={convs.loading}
+              onSelect={(id) => {
+                setLibraryOpen(false);
+                if (id !== convs.activeId) convs.open(id);
+              }}
+              onRename={convs.rename}
+              onDelete={convs.remove}
+            />
+          ) : (
+            <DocumentLibrary
               documents={docs.documents}
               loading={docs.loading}
+              uploading={docs.uploading}
               openDocumentId={viewer?.documentId ?? null}
+              onPickFiles={() => fileInputRef.current?.click()}
+              onDropFiles={uploadFiles}
               onOpen={(id) => openSource(id, 1)}
               onDelete={docs.remove}
             />
-          </section>
+          )}
         </div>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept={FILE_INPUT_ACCEPT}
+          className="hidden"
+          onChange={(event) => {
+            const files = Array.from(event.target.files ?? []);
+            event.target.value = ""; // allow picking the same file again
+            if (files.length > 0) uploadFiles(files);
+          }}
+        />
 
         <div className="border-t border-rule p-2">
           <button
@@ -188,7 +257,7 @@ function WorkspaceScreen({ workspace, workspaces, mode, onModeChange }: Workspac
           session={convs.session}
           ensureConversation={convs.ensureConversation}
           onAnswered={convs.refresh}
-          onNewConversation={convs.startNew}
+          onNewConversation={startNewConversation}
           documents={docs.documents}
           documentsError={docs.error}
           onClearDocumentsError={docs.clearError}
@@ -287,9 +356,11 @@ function ChatPanel({
             type="button"
             onClick={onNewConversation}
             disabled={chat.isRunning}
-            className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-slate hover:bg-surface hover:text-ink disabled:opacity-40"
+            className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-slate hover:bg-surface hover:text-ink disabled:opacity-40 lg:hidden"
           >
-            <SquarePen className="size-3.5" aria-hidden /> New conversation
+            <SquarePen className="size-3.5" aria-hidden />
+            <span className="sm:hidden">New</span>
+            <span className="hidden sm:inline">New conversation</span>
           </button>
         )}
       </header>

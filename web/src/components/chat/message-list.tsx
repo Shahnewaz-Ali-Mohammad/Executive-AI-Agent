@@ -3,11 +3,13 @@
 /**
  * The conversation. The CEO's questions are short right-aligned notes; the
  * answers are full-width "memos" set in the reading serif, followed by the
- * list of sources they cite.
+ * list of sources they cite. Every message shows when it was sent, and a
+ * divider marks each new day.
  */
-import { useEffect, useRef } from "react";
+import { Fragment, useEffect, useRef } from "react";
 import type { ChatMessage } from "@/hooks/use-executive-chat";
 import { extractCitations, type CitableDocument, type Citation } from "@/lib/citations";
+import { formatDateTime, formatDayLabel, formatFullDateTime, isSameDay } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { AnswerMarkdown } from "./answer-markdown";
 import { CitationTab } from "./citation-tab";
@@ -43,30 +45,48 @@ export function MessageList({
   return (
     <div className="mx-auto w-full max-w-3xl space-y-8 px-4 py-8 sm:px-8">
       {messages.map((message, index) => {
+        const previous = messages[index - 1];
+        const newDay = !previous || !isSameDay(previous.createdAt, message.createdAt);
+        const divider = newDay ? <DayDivider iso={message.createdAt} /> : null;
+
         if (message.role === "user") {
           return (
-            <div key={message.id} className="flex justify-end">
-              <p className="max-w-[85%] whitespace-pre-wrap rounded-lg bg-surface px-4 py-2.5 text-[0.95rem] text-ink shadow-[0_0_0_1px_var(--rule)]">
-                {message.content}
-              </p>
-            </div>
+            <Fragment key={message.id}>
+              {divider}
+              <div className="flex flex-col items-end gap-1">
+                <p className="max-w-[85%] whitespace-pre-wrap rounded-lg bg-surface px-4 py-2.5 text-[0.95rem] text-ink shadow-[0_0_0_1px_var(--rule)]">
+                  {message.content}
+                </p>
+                <Timestamp iso={message.createdAt} />
+              </div>
+            </Fragment>
           );
         }
 
         const isStreaming = isRunning && index === messages.length - 1;
         const messageCitations = citations[message.id] ?? extractCitations(message.content, documents);
         return (
-          <article key={message.id} aria-busy={isStreaming}>
-            <div className={cn("briefing text-ink", isStreaming && "streaming-caret")}>
-              <AnswerMarkdown
-                content={message.content}
-                citations={citations[message.id]}
-                documents={documents}
-                onOpenCitation={onOpenCitation}
-              />
-            </div>
-            {!isStreaming && <SourceList citations={messageCitations} onOpenCitation={onOpenCitation} />}
-          </article>
+          <Fragment key={message.id}>
+            {divider}
+            <article aria-busy={isStreaming}>
+              <div className={cn("briefing text-ink", isStreaming && "streaming-caret")}>
+                <AnswerMarkdown
+                  content={message.content}
+                  citations={citations[message.id]}
+                  documents={documents}
+                  onOpenCitation={onOpenCitation}
+                />
+              </div>
+              {!isStreaming && (
+                <>
+                  <SourceList citations={messageCitations} onOpenCitation={onOpenCitation} />
+                  <div className="mt-2">
+                    <Timestamp iso={message.createdAt} />
+                  </div>
+                </>
+              )}
+            </article>
+          </Fragment>
         );
       })}
 
@@ -77,6 +97,26 @@ export function MessageList({
         </p>
       )}
       <div ref={endRef} />
+    </div>
+  );
+}
+
+/** "Today, 15:56" / "Thu 8 Oct, 13:53" under a message; the full date is in the tooltip. */
+function Timestamp({ iso }: { iso: string }) {
+  return (
+    <time dateTime={iso} title={formatFullDateTime(iso)} className="text-xs text-slate tabular-nums">
+      {formatDateTime(iso)}
+    </time>
+  );
+}
+
+/** "Today", "Thursday 8 October" … between messages from different days. */
+function DayDivider({ iso }: { iso: string }) {
+  return (
+    <div className="flex items-center gap-3 text-xs text-slate" role="separator">
+      <span className="h-px flex-1 bg-rule" />
+      <time dateTime={iso}>{formatDayLabel(iso)}</time>
+      <span className="h-px flex-1 bg-rule" />
     </div>
   );
 }

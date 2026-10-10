@@ -42,8 +42,10 @@ export interface ConversationDTO {
   id: string;
   workspaceId: string;
   title: string;
+  /** Questions and answers in it. */
+  messageCount: number;
   createdAt: string;
-  /** Last activity (newest first in the list). */
+  /** When the last message was sent (newest first in the list). Renaming doesn't change it. */
   updatedAt: string;
 }
 

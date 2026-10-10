@@ -32,6 +32,8 @@ export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  /** When it was sent (ISO). Saved messages use the database time. */
+  createdAt: string;
 }
 
 /** Human labels for the AG-UI STEP events the server emits. */
@@ -39,13 +41,17 @@ const STEP_LABELS: Record<string, string> = {
   reading_documents: "Reading your documents…",
 };
 
-/** Keep only plain user/assistant text messages for display. */
-function toChatMessages(messages: readonly Message[]): ChatMessage[] {
-  return messages.flatMap((message) =>
-    (message.role === "user" || message.role === "assistant") && typeof message.content === "string"
-      ? [{ id: message.id, role: message.role, content: message.content }]
-      : [],
-  );
+/**
+ * Keep only plain user/assistant text messages for display, with their time.
+ * AG-UI messages carry no timestamp, so `times` remembers when each id was
+ * first seen (or its saved time); new ids are stamped "now".
+ */
+function toChatMessages(messages: readonly Message[], times: Map<string, string>): ChatMessage[] {
+  return messages.flatMap((message) => {
+    if ((message.role !== "user" && message.role !== "assistant") || typeof message.content !== "string") return [];
+    if (!times.has(message.id)) times.set(message.id, new Date().toISOString());
+    return [{ id: message.id, role: message.role, content: message.content, createdAt: times.get(message.id)! }];
+  });
 }
 
 /** Convert stored history into AG-UI messages to seed the agent. */
@@ -65,6 +71,7 @@ interface UseExecutiveChatOptions {
 
 export function useExecutiveChat({ workspaceId, session, ensureConversation, onAnswered }: UseExecutiveChatOptions) {
   const agentRef = useRef<HttpAgent | null>(null);
+  const timesRef = useRef(new Map<string, string>());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [citations, setCitations] = useState<Record<string, Citation[]>>({});
   const [isRunning, setIsRunning] = useState(false);
@@ -79,9 +86,10 @@ export function useExecutiveChat({ workspaceId, session, ensureConversation, onA
   useEffect(() => {
     let cancelled = false;
     const agent = new HttpAgent({ url: "/api/chat", threadId: loadId ?? crypto.randomUUID() });
+    const times = timesRef.current;
 
     const subscriber: AgentSubscriber = {
-      onMessagesChanged: ({ messages }) => setMessages(toChatMessages(messages)),
+      onMessagesChanged: ({ messages }) => setMessages(toChatMessages(messages, times)),
       onStepStartedEvent: ({ event }) => setActivity(STEP_LABELS[event.stepName] ?? "Working…"),
       onStepFinishedEvent: () => setActivity(null),
       onCustomEvent: ({ event }) => {
@@ -101,8 +109,9 @@ export function useExecutiveChat({ workspaceId, session, ensureConversation, onA
         .listMessages(loadId)
         .then((history) => {
           if (cancelled) return;
+          for (const message of history) times.set(message.id, message.createdAt);
           agent.setMessages(fromHistory(history));
-          setMessages(toChatMessages(agent.messages));
+          setMessages(toChatMessages(agent.messages, times));
           setCitations(Object.fromEntries(history.map((m) => [m.id, m.citations])));
         })
         .catch((err) => !cancelled && setError(err instanceof Error ? err.message : "Could not load the chat."))
@@ -126,7 +135,7 @@ export function useExecutiveChat({ workspaceId, session, ensureConversation, onA
       setError(null);
       setIsRunning(true);
       agent.addMessage({ id: crypto.randomUUID(), role: "user", content: question });
-      setMessages(toChatMessages(agent.messages));
+      setMessages(toChatMessages(agent.messages, timesRef.current));
 
       try {
         const conversationId = await ensureConversation();

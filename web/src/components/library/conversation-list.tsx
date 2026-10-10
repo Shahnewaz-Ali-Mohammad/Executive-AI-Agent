@@ -1,12 +1,18 @@
 "use client";
 
 /**
- * Saved conversations of the open workspace, newest first.
- * Tap one to reopen it; "+" starts a new one (saved when the first question is asked).
+ * Saved conversations of the open workspace.
+ *
+ * Built for a list that keeps growing: newest first, grouped by when the last
+ * message was sent (Today, Yesterday, Previous 7 days, then by month), with a
+ * search box. Each entry shows the date and time of its last message and how
+ * many messages it holds.
  */
-import { Check, MessageSquare, Pencil, Plus, Trash2, X } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { Check, Pencil, Trash2, X } from "lucide-react";
+import { useMemo, useState, type FormEvent } from "react";
 import { IconButton } from "@/components/ui/button";
+import { SearchField } from "@/components/ui/search-field";
+import { formatDateTime, formatFullDateTime, formatRecencyGroup } from "@/lib/dates";
 import type { ConversationDTO } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -15,23 +21,30 @@ interface ConversationListProps {
   activeId: string | null;
   loading: boolean;
   onSelect: (id: string) => void;
-  onNew: () => void;
   onRename: (id: string, title: string) => Promise<unknown>;
   onDelete: (id: string) => Promise<unknown>;
 }
 
-/** "Today 14:05", "Yesterday", "Mon", or "7 Oct" — short enough for the sidebar. */
-function formatWhen(iso: string): string {
-  const date = new Date(iso);
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const day = 24 * 60 * 60 * 1000;
-  if (date.getTime() >= startOfToday) {
-    return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+interface Group {
+  label: string;
+  items: ConversationDTO[];
+}
+
+/** Consecutive conversations (already newest first) under one date heading. */
+function groupByRecency(conversations: ConversationDTO[]): Group[] {
+  const groups: Group[] = [];
+  for (const conversation of conversations) {
+    const label = formatRecencyGroup(conversation.updatedAt);
+    const last = groups.at(-1);
+    if (last?.label === label) last.items.push(conversation);
+    else groups.push({ label, items: [conversation] });
   }
-  if (date.getTime() >= startOfToday - day) return "Yesterday";
-  if (date.getTime() >= startOfToday - 6 * day) return date.toLocaleDateString(undefined, { weekday: "short" });
-  return date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  return groups;
+}
+
+function messageCountLabel(count: number): string {
+  if (count === 0) return "No messages yet";
+  return `${count} message${count === 1 ? "" : "s"}`;
 }
 
 export function ConversationList({
@@ -39,86 +52,109 @@ export function ConversationList({
   activeId,
   loading,
   onSelect,
-  onNew,
   onRename,
   onDelete,
 }: ConversationListProps) {
+  const [query, setQuery] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  const groups = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    const matching = needle ? conversations.filter((c) => c.title.toLowerCase().includes(needle)) : conversations;
+    return groupByRecency(matching);
+  }, [conversations, query]);
 
   async function handleDelete(conversation: ConversationDTO) {
     const confirmed = window.confirm(`Delete the conversation "${conversation.title}"? Documents are kept.`);
     if (confirmed) await onDelete(conversation.id);
   }
 
+  if (loading) return <p className="px-4 py-3 text-sm text-slate">Loading conversations…</p>;
+  if (conversations.length === 0) {
+    return (
+      <p className="px-4 py-3 text-sm text-slate">
+        No saved conversations yet. Ask a question and it&apos;s saved here automatically.
+      </p>
+    );
+  }
+
   return (
-    <nav aria-label="Conversations">
-      <div className="flex items-center justify-between px-4 pb-1">
-        <h2 className="text-xs font-medium text-slate">Conversations</h2>
-        <IconButton aria-label="New conversation" onClick={onNew} className="size-7">
-          <Plus className="size-4" />
-        </IconButton>
+    <div className="space-y-3">
+      <div className="px-3">
+        <SearchField value={query} onChange={setQuery} placeholder="Search conversations" label="Search conversations" />
       </div>
 
-      {loading ? (
-        <p className="px-4 py-2 text-xs text-slate">Loading…</p>
-      ) : conversations.length === 0 ? (
-        <p className="px-4 py-2 text-xs text-slate">No saved conversations yet. Ask a question to start one.</p>
-      ) : (
-        <ul className="max-h-[40vh] overflow-y-auto px-2">
-          {conversations.map((conversation) =>
-            editingId === conversation.id ? (
-              <li key={conversation.id}>
-                <TitleForm
-                  initial={conversation.title}
-                  onCancel={() => setEditingId(null)}
-                  onSave={async (title) => {
-                    await onRename(conversation.id, title);
-                    setEditingId(null);
-                  }}
-                />
-              </li>
-            ) : (
-              <li key={conversation.id} className="group relative">
-                <button
-                  type="button"
-                  onClick={() => onSelect(conversation.id)}
-                  aria-current={conversation.id === activeId ? "page" : undefined}
-                  className={cn(
-                    "flex w-full items-start gap-2 rounded-md py-2 pr-16 pl-3 text-left text-sm transition-colors",
-                    conversation.id === activeId
-                      ? "bg-paper text-ink shadow-[inset_2px_0_0_var(--ledger)]"
-                      : "text-slate hover:bg-paper hover:text-ink",
-                  )}
-                >
-                  <MessageSquare className="mt-0.5 size-3.5 shrink-0 opacity-60" aria-hidden />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate">{conversation.title}</span>
-                    <span className="block text-xs text-slate/80">{formatWhen(conversation.updatedAt)}</span>
-                  </span>
-                </button>
-                {/* Always visible on touch screens (no hover there). */}
-                <div className="absolute top-1/2 right-1 flex -translate-y-1/2 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
-                  <IconButton
-                    aria-label={`Rename ${conversation.title}`}
-                    onClick={() => setEditingId(conversation.id)}
-                    className="size-7"
+      {groups.length === 0 && <p className="px-4 text-sm text-slate">No conversation titles match “{query}”.</p>}
+
+      {groups.map((group) => (
+        <section key={group.label} aria-label={group.label}>
+          <h3 className="px-4 pb-1 text-[0.7rem] font-medium tracking-wide text-slate uppercase">{group.label}</h3>
+          <ul className="px-2">
+            {group.items.map((conversation) =>
+              editingId === conversation.id ? (
+                <li key={conversation.id}>
+                  <TitleForm
+                    initial={conversation.title}
+                    onCancel={() => setEditingId(null)}
+                    onSave={async (title) => {
+                      await onRename(conversation.id, title);
+                      setEditingId(null);
+                    }}
+                  />
+                </li>
+              ) : (
+                <li key={conversation.id} className="group relative">
+                  <button
+                    type="button"
+                    onClick={() => onSelect(conversation.id)}
+                    aria-current={conversation.id === activeId ? "page" : undefined}
+                    className={cn(
+                      "w-full rounded-md py-2 pr-16 pl-3 text-left transition-colors",
+                      conversation.id === activeId
+                        ? "bg-paper shadow-[inset_2px_0_0_var(--ledger)]"
+                        : "hover:bg-paper",
+                    )}
                   >
-                    <Pencil className="size-3.5" />
-                  </IconButton>
-                  <IconButton
-                    aria-label={`Delete ${conversation.title}`}
-                    onClick={() => handleDelete(conversation)}
-                    className="size-7 hover:text-alert"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </IconButton>
-                </div>
-              </li>
-            ),
-          )}
-        </ul>
-      )}
-    </nav>
+                    <span
+                      className={cn(
+                        "block truncate text-sm",
+                        conversation.id === activeId ? "font-medium text-ink" : "text-ink/90",
+                      )}
+                    >
+                      {conversation.title}
+                    </span>
+                    <span className="mt-0.5 block truncate text-xs text-slate tabular-nums">
+                      <time dateTime={conversation.updatedAt} title={`Last message: ${formatFullDateTime(conversation.updatedAt)}`}>
+                        {formatDateTime(conversation.updatedAt)}
+                      </time>
+                      {" · "}
+                      {messageCountLabel(conversation.messageCount)}
+                    </span>
+                  </button>
+                  {/* Always visible on touch screens (no hover there). */}
+                  <div className="absolute top-1/2 right-1 flex -translate-y-1/2 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
+                    <IconButton
+                      aria-label={`Rename ${conversation.title}`}
+                      onClick={() => setEditingId(conversation.id)}
+                      className="size-7"
+                    >
+                      <Pencil className="size-3.5" />
+                    </IconButton>
+                    <IconButton
+                      aria-label={`Delete ${conversation.title}`}
+                      onClick={() => handleDelete(conversation)}
+                      className="size-7 hover:text-alert"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </IconButton>
+                  </div>
+                </li>
+              ),
+            )}
+          </ul>
+        </section>
+      ))}
+    </div>
   );
 }
 

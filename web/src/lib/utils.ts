@@ -13,12 +13,3 @@ export function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
-
-/** "Today 14:05", "12 Mar" */
-export function formatDate(iso: string): string {
-  const date = new Date(iso);
-  const isToday = date.toDateString() === new Date().toDateString();
-  return isToday
-    ? `Today ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
-    : date.toLocaleDateString([], { day: "numeric", month: "short" });
-}

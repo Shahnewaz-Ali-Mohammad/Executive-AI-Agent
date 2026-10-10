@@ -3,7 +3,7 @@
  * comes first in the list.
  */
 import "server-only";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { HttpError, isUuid } from "@/lib/http";
 import type { ConversationDTO } from "@/lib/types";
@@ -14,11 +14,12 @@ const { conversations } = schema;
 export const DEFAULT_CONVERSATION_TITLE = "New conversation";
 const TITLE_MAX_LENGTH = 60;
 
-function toDTO(row: schema.Conversation): ConversationDTO {
+function toDTO(row: schema.Conversation, messageCount = 0): ConversationDTO {
   return {
     id: row.id,
     workspaceId: row.workspaceId,
     title: row.title,
+    messageCount,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -33,11 +34,15 @@ export function titleFromQuestion(question: string): string {
 
 export async function listConversations(workspaceId: string): Promise<ConversationDTO[]> {
   const rows = await db
-    .select()
+    .select({
+      ...getTableColumns(conversations),
+      // Fully qualified: inside a sub-select a bare "id" would mean chat_messages.id.
+      messageCount: sql<number>`(select count(*) from "chat_messages" as m where m."conversation_id" = "conversations"."id")::int`,
+    })
     .from(conversations)
     .where(eq(conversations.workspaceId, workspaceId))
     .orderBy(desc(conversations.updatedAt));
-  return rows.map(toDTO);
+  return rows.map(({ messageCount, ...row }) => toDTO(row, messageCount));
 }
 
 export async function createConversation(workspaceId: string, title?: string): Promise<ConversationDTO> {

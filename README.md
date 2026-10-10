@@ -35,8 +35,15 @@ documents stay on your own server.
 - **Workspaces**: one private space per topic (a board meeting, a deal, a key
   client). Search never crosses between workspaces.
 - **Saved conversations**: each workspace keeps a list of conversations you can
-  reopen, rename or delete. New conversations are named after their first
+  reopen, rename or delete, grouped by date (Today, Yesterday, Previous 7
+  days, then by month) and searchable. Each shows when its last message was
+  sent and how many messages it has; new ones are named after their first
   question.
+- **Dated messages**: every question and answer shows its date and time, with
+  a divider when the day changes.
+- **File library**: search, filter by Images / PDFs / Office files, real
+  thumbnails for photos and scans, a picture grid for images, and the upload
+  date and time of every file.
 - **Upload digest**: each document gets a three-sentence summary of what it is
   and what needs attention.
 - **Voice input**: the browser's dictation, with OpenAI transcription as a

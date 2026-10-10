@@ -115,7 +115,8 @@ export function useConversations(workspaceId: string) {
 
   const rename = useCallback(async (id: string, title: string) => {
     const updated = await api.renameConversation(id, title);
-    setConversations((list) => list.map((c) => (c.id === id ? updated : c)));
+    // Only the title changes (the count and last-message time stay as listed).
+    setConversations((list) => list.map((c) => (c.id === id ? { ...c, title: updated.title } : c)));
   }, []);
 
   const remove = useCallback(
