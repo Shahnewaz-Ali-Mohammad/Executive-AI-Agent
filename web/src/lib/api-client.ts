@@ -3,11 +3,14 @@
  * Every call throws an `Error` with the server's message when it fails,
  * so components can show it directly.
  */
+import type { FormValues, TemplateInput } from "@/lib/forms";
 import type {
   ChatMessageDTO,
   ConversationDTO,
   DocumentDTO,
   DocumentPageDTO,
+  FormSubmissionDTO,
+  FormTemplateDTO,
   WorkspaceDTO,
 } from "@/lib/types";
 
@@ -61,6 +64,22 @@ export const api = {
   deleteConversation: (id: string) => request<void>(`/api/conversations/${id}`, { method: "DELETE" }),
   listMessages: (conversationId: string) =>
     request<ChatMessageDTO[]>(`/api/conversations/${conversationId}/messages`),
+
+  // Forms
+  listTemplates: () => request<FormTemplateDTO[]>("/api/forms/templates"),
+  createTemplate: (input: TemplateInput & { messageId?: string; workspaceId?: string }) =>
+    request<FormTemplateDTO>("/api/forms/templates", json("POST", input)),
+  updateTemplate: (id: string, input: TemplateInput) =>
+    request<FormTemplateDTO>(`/api/forms/templates/${id}`, json("PATCH", input)),
+  deleteTemplate: (id: string) => request<void>(`/api/forms/templates/${id}`, { method: "DELETE" }),
+  listSubmissions: (workspaceId: string) => request<FormSubmissionDTO[]>(`/api/workspaces/${workspaceId}/forms`),
+  createSubmission: (
+    workspaceId: string,
+    input: { templateId: string; values: FormValues; conversationId?: string | null; messageId?: string | null },
+  ) => request<FormSubmissionDTO>(`/api/workspaces/${workspaceId}/forms`, json("POST", input)),
+  updateSubmission: (id: string, values: FormValues) =>
+    request<FormSubmissionDTO>(`/api/forms/submissions/${id}`, json("PATCH", { values })),
+  deleteSubmission: (id: string) => request<void>(`/api/forms/submissions/${id}`, { method: "DELETE" }),
 
   // Voice
   transcribe: (audio: Blob) => {

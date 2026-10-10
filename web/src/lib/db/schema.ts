@@ -3,7 +3,7 @@
  *
  * Postgres holds the "business" records the app needs: workspaces, documents
  * and their status, the text of each page (for the citation viewer), and the
- * saved conversations. The searchable chunks and embeddings live in Qdrant instead,
+ * saved conversations, form templates and saved forms. The searchable chunks and embeddings live in Qdrant instead,
  * written by the n8n ingestion workflow.
  *
  * After changing this file, run `npm run db:generate` to create a migration,
@@ -21,6 +21,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import type { Citation } from "@/lib/citations";
+import type { FormAttachment, FormField, FormValues } from "@/lib/forms";
 
 /** Lifecycle of an uploaded document. */
 export const documentStatus = pgEnum("document_status", ["processing", "ready", "failed"]);
@@ -122,6 +123,8 @@ export const chatMessages = pgTable(
     mode: text("mode"),
     /** Citations found in an assistant answer, resolved to documents. */
     citations: jsonb("citations").$type<Citation[]>(),
+    /** A form card shown with an answer (a filled form, or a new template draft). */
+    form: jsonb("form").$type<FormAttachment>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -130,8 +133,46 @@ export const chatMessages = pgTable(
   ],
 );
 
+/**
+ * A form template: a name and its fields. Shared by all workspaces, so the
+ * same "Leave request" can be filled in anywhere.
+ */
+export const formTemplates = pgTable("form_templates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  description: text("description").notNull().default(""),
+  fields: jsonb("fields").$type<FormField[]>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * A filled-in, saved form. Keeps its own copy of the template's name and
+ * fields, so it reads the same even if the template is later edited or deleted.
+ */
+export const formSubmissions = pgTable(
+  "form_submissions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    templateId: uuid("template_id").references(() => formTemplates.id, { onDelete: "set null" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    /** The conversation it was filled in from, if any. */
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    templateName: text("template_name").notNull(),
+    fields: jsonb("fields").$type<FormField[]>().notNull(),
+    values: jsonb("values").$type<FormValues>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("form_submissions_workspace_idx").on(table.workspaceId, table.createdAt)],
+);
+
 export type Workspace = typeof workspaces.$inferSelect;
 export type DocumentRecord = typeof documents.$inferSelect;
 export type DocumentPage = typeof documentPages.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type ChatMessageRecord = typeof chatMessages.$inferSelect;
+export type FormTemplate = typeof formTemplates.$inferSelect;
+export type FormSubmission = typeof formSubmissions.$inferSelect;

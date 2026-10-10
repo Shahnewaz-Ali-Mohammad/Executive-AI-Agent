@@ -6,6 +6,7 @@
  * and dates travel as ISO strings.
  */
 import type { Citation } from "@/lib/citations";
+import type { FormAttachment, FormField, FormValues } from "@/lib/forms";
 import type { ResponseModeId } from "@/lib/response-modes";
 
 export interface WorkspaceDTO {
@@ -55,7 +56,32 @@ export interface ChatMessageDTO {
   content: string;
   mode: ResponseModeId | null;
   citations: Citation[];
+  /** A form card shown with this answer, if any. */
+  form: FormAttachment | null;
   createdAt: string;
+}
+
+export interface FormTemplateDTO {
+  id: string;
+  name: string;
+  description: string;
+  fields: FormField[];
+  /** How many saved forms use it (all workspaces). */
+  submissionCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FormSubmissionDTO {
+  id: string;
+  templateId: string | null;
+  workspaceId: string;
+  conversationId: string | null;
+  templateName: string;
+  fields: FormField[];
+  values: FormValues;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /** Extra fields the browser sends with each AG-UI run (in `forwardedProps`). */
@@ -68,6 +94,15 @@ export interface ChatForwardedProps {
 
 /** Name of the AG-UI CUSTOM event that carries resolved citations. */
 export const CITATIONS_EVENT = "citations";
+
+/** Name of the AG-UI CUSTOM event that shows a form card with an answer. */
+export const FORM_EVENT = "form";
+
+/** Payload of the CUSTOM "form" event. */
+export interface FormEventValue {
+  messageId: string;
+  form: FormAttachment;
+}
 
 /** Payload of the CUSTOM "citations" event. */
 export interface CitationsEventValue {

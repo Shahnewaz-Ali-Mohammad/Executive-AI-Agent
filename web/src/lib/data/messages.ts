@@ -4,6 +4,7 @@
 import "server-only";
 import { asc, eq } from "drizzle-orm";
 import type { Citation } from "@/lib/citations";
+import type { FormAttachment } from "@/lib/forms";
 import { db, schema } from "@/lib/db";
 import { isResponseMode, type ResponseModeId } from "@/lib/response-modes";
 import type { ChatMessageDTO } from "@/lib/types";
@@ -18,6 +19,7 @@ function toDTO(row: schema.ChatMessageRecord): ChatMessageDTO {
     content: row.content,
     mode: isResponseMode(row.mode) ? row.mode : null,
     citations: row.citations ?? [],
+    form: row.form ?? null,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -39,6 +41,7 @@ export async function saveMessage(input: {
   content: string;
   mode?: ResponseModeId;
   citations?: Citation[];
+  form?: FormAttachment | null;
 }): Promise<void> {
   await db
     .insert(chatMessages)
@@ -50,6 +53,7 @@ export async function saveMessage(input: {
       content: input.content,
       mode: input.mode ?? null,
       citations: input.citations ?? null,
+      form: input.form ?? null,
     })
     // The browser may retry a run with the same message id; keep the first copy.
     .onConflictDoNothing();
