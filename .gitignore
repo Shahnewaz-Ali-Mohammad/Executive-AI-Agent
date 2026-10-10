@@ -1,0 +1,14 @@
+# Secrets: copy .env.example to .env and never commit .env
+.env
+
+node_modules/
+.DS_Store
+*.log
+
+# Local-only files: diagnostics, old code waiting to be deleted
+_to_delete/
+scripts/check-log.txt
+n8n-log.txt
+
+# Written automatically by `next dev`
+web/AGENTS.md

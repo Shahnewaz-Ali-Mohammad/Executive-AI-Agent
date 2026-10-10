@@ -1,0 +1,181 @@
+/*
+ * Design tokens and base styles.
+ *
+ * Look: a private briefing room rather than a chat app. Answers are set in a
+ * reading serif like a well-made memo; the interface around them is a quiet
+ * sans. One accent colour ("ledger green") marks everything that leads back
+ * to a source document. Amber means "still working / data gap", red means
+ * "failed". Light and dark themes follow the device setting.
+ */
+@import "tailwindcss";
+
+/* Fonts are bundled from npm (no Google requests: this app handles confidential data). */
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource-variable/source-serif-4/opsz.css";
+@import "@fontsource-variable/source-serif-4/opsz-italic.css";
+
+:root {
+  --paper: #f3f4f1; /* app background */
+  --surface: #ffffff; /* panels and cards */
+  --ink: #18212b; /* main text */
+  --slate: #5a6573; /* secondary text */
+  --rule: #d9dcd5; /* borders and dividers */
+  --desk: #e4e7e2; /* behind a document page in the viewer */
+  --ledger: #1e5a50; /* accent: sources, primary actions */
+  --ledger-soft: #e2ede9;
+  --amber: #9a6210; /* processing, data gaps */
+  --amber-soft: #f7ecd8;
+  --alert: #a3392b; /* errors */
+  --alert-soft: #f7e3df;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #121820;
+    --surface: #18202a;
+    --ink: #e6e9e4;
+    --slate: #98a2ae;
+    --rule: #2a3440;
+    --desk: #0d1218;
+    --ledger: #74b8a9;
+    --ledger-soft: #1c332e;
+    --amber: #d9a04a;
+    --amber-soft: #33281a;
+    --alert: #e58a7b;
+    --alert-soft: #3a211e;
+  }
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-slate: var(--slate);
+  --color-rule: var(--rule);
+  --color-desk: var(--desk);
+  --color-ledger: var(--ledger);
+  --color-ledger-soft: var(--ledger-soft);
+  --color-amber: var(--amber);
+  --color-amber-soft: var(--amber-soft);
+  --color-alert: var(--alert);
+  --color-alert-soft: var(--alert-soft);
+
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Source Serif 4 Variable", "Source Serif 4", Georgia, serif;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Visible keyboard focus everywhere, in the accent colour.
+   (The question box shows focus on its rounded frame instead, see composer.tsx.) */
+:focus-visible:not(#question) {
+  outline: 2px solid var(--ledger);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ---- Answer typography (Markdown rendered inside .briefing) ---------------- */
+.briefing {
+  font-family: var(--font-serif);
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  max-width: 68ch;
+}
+.briefing > * + * {
+  margin-top: 0.75em;
+}
+.briefing h1,
+.briefing h2,
+.briefing h3 {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 0.95rem;
+  letter-spacing: 0.01em;
+  margin-top: 1.4em;
+}
+.briefing strong {
+  font-weight: 650;
+}
+.briefing ul,
+.briefing ol {
+  padding-left: 1.25em;
+}
+.briefing ul {
+  list-style: disc;
+}
+.briefing ol {
+  list-style: decimal;
+}
+.briefing li + li {
+  margin-top: 0.35em;
+}
+.briefing li::marker {
+  color: var(--slate);
+}
+.briefing table {
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  border-collapse: collapse;
+  width: 100%;
+  display: block;
+  overflow-x: auto;
+}
+.briefing th,
+.briefing td {
+  border-bottom: 1px solid var(--rule);
+  padding: 0.4em 0.75em 0.4em 0;
+  text-align: left;
+  vertical-align: top;
+}
+.briefing th {
+  font-weight: 600;
+  color: var(--slate);
+}
+.briefing blockquote {
+  border-left: 2px solid var(--rule);
+  padding-left: 1em;
+  color: var(--slate);
+}
+.briefing code {
+  font-size: 0.875em;
+  background: var(--paper);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+}
+
+/* Blinking caret at the end of an answer that is still streaming. */
+.streaming-caret::after {
+  content: "";
+  display: inline-block;
+  width: 0.45em;
+  height: 1.05em;
+  margin-left: 0.15em;
+  vertical-align: -0.15em;
+  background: var(--ledger);
+  animation: caret 1s steps(2) infinite;
+}
+@keyframes caret {
+  50% {
+    opacity: 0;
+  }
+}

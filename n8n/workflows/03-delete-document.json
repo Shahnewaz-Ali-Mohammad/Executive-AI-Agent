@@ -1,0 +1,114 @@
+{
+  "id": "ExecAgentDelete1",
+  "name": "Executive Agent · 3. Delete document",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 3 · Delete a document\nCalled by the web app when the CEO deletes a document or a workspace\n(`POST /webhook/delete-document`). Removes all of the document's passages from Qdrant,\nso it can never appear in an answer again.",
+        "height": 220,
+        "width": 620,
+        "color": 7
+      },
+      "id": "d24e3545-1b6f-5642-b0fb-e0a99ff03915",
+      "name": "Note: overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "delete-document",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "718a417e-2df4-567f-aa56-3ff2352615fd",
+      "name": "Receive delete",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "2ba3c537-aebe-58b0-8bc5-e2096711855a"
+    },
+    {
+      "parameters": {
+        "jsCode": "const { headers = {}, body = {} } = $input.first().json;\nif (!$env.N8N_SHARED_SECRET || headers['x-webhook-secret'] !== $env.N8N_SHARED_SECRET) {\n  throw new Error('Rejected: missing or wrong x-webhook-secret header.');\n}\nif (!body.document_id || !body.workspace_id) throw new Error('document_id and workspace_id are required.');\nreturn [{ json: { documentId: body.document_id, workspaceId: body.workspace_id } }];\n"
+      },
+      "id": "83ee055b-f454-5353-a433-287d5bbad56b",
+      "name": "Check secret",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.QDRANT_URL || 'http://qdrant:6333') }}/collections/{{ $env.QDRANT_COLLECTION || 'executive_docs' }}/points/delete?wait=true",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api-key",
+              "value": "={{ $env.QDRANT_API_KEY || '' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filter: { must: [\n  { key: 'document_id', match: { value: $json.documentId } },\n  { key: 'workspace_id', match: { value: $json.workspaceId } }\n] } }) }}",
+        "options": {}
+      },
+      "id": "e1aaa1ab-dafe-52b9-b23d-6c8c0416f4c8",
+      "name": "Delete from Qdrant",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Receive delete": {
+      "main": [
+        [
+          {
+            "node": "Check secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check secret": {
+      "main": [
+        [
+          {
+            "node": "Delete from Qdrant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "active": false,
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}
