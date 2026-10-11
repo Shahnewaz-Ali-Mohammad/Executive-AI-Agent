@@ -2,7 +2,7 @@
  * Minimal OpenAI API calls used by the direct backend (plain fetch, no SDK):
  *   - embed()        → /embeddings
  *   - respond()      → /responses (reading scans, writing digests)
- *   - streamChat()   → /chat/completions with stream: true (answers, form tools)
+ *   - streamChat()   → /responses with stream: true (answers, form tools)
  */
 import "server-only";
 import { env } from "@/lib/env";
@@ -79,18 +79,20 @@ export type ChatStreamPart =
   | { type: "text"; text: string }
   | { type: "tool_call"; name: string; arguments: string };
 
-interface ChatChunk {
-  choices?: {
-    delta?: {
-      content?: string | null;
-      tool_calls?: { index: number; function?: { name?: string; arguments?: string } }[];
-    };
-  }[];
+/** The streamed Responses API events this app uses. */
+interface ResponseStreamEvent {
+  type: string;
+  delta?: string;
+  item?: { type?: string; name?: string; arguments?: string };
+  error?: { message?: string };
+  response?: { error?: { message?: string } | null; incomplete_details?: { reason?: string } | null };
+  message?: string;
 }
 
 /**
- * Stream a chat answer from Chat Completions. Text is yielded as it arrives;
- * tool calls arrive in pieces too, so they're collected and yielded at the end.
+ * Stream an answer from the Responses API (the endpoint OpenAI recommends for
+ * reasoning models; it allows tools together with a reasoning effort).
+ * Text is yielded as it arrives; a tool call is yielded once it's complete.
  */
 export async function* streamChat(options: {
   model: string;
@@ -102,20 +104,22 @@ export async function* streamChat(options: {
 }): AsyncGenerator<ChatStreamPart> {
   const tools = options.tools ?? [];
   const response = await post(
-    "/chat/completions",
+    "/responses",
     {
       model: options.model,
-      reasoning_effort: options.reasoningEffort,
+      reasoning: { effort: options.reasoningEffort },
+      instructions: options.system,
+      input: options.user,
       stream: true,
-      messages: [
-        { role: "system", content: options.system },
-        { role: "user", content: options.user },
-      ],
+      store: false, // confidential company data: don't keep responses on OpenAI's side
       ...(tools.length > 0
         ? {
             tools: tools.map((tool) => ({
               type: "function",
-              function: { name: tool.name, description: tool.description, parameters: tool.parameters, strict: true },
+              name: tool.name,
+              description: tool.description,
+              parameters: tool.parameters,
+              strict: true,
             })),
           }
         : {}),
@@ -124,9 +128,7 @@ export async function* streamChat(options: {
   );
   if (!response.body) throw new Error("OpenAI sent an empty reply.");
 
-  const calls = new Map<number, { name: string; arguments: string }>();
-
-  // Server-sent events: lines of "data: {json}", ending with "data: [DONE]".
+  // Server-sent events: "event: <type>" + "data: {json}" pairs.
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -138,26 +140,34 @@ export async function* streamChat(options: {
     const lines = buffer.split("\n");
     buffer = lines.pop() ?? ""; // keep the unfinished line
     for (const line of lines) {
-      const data = line.trim().replace(/^data:\s*/, "");
-      if (!line.trim().startsWith("data:") || !data || data === "[DONE]") continue;
-      let chunk: ChatChunk;
+      if (!line.startsWith("data:")) continue;
+      const data = line.slice(5).trim();
+      if (!data || data === "[DONE]") continue;
+      let event: ResponseStreamEvent;
       try {
-        chunk = JSON.parse(data) as ChatChunk;
+        event = JSON.parse(data) as ResponseStreamEvent;
       } catch {
-        continue; // keep-alive or partial line
+        continue; // partial or keep-alive line
       }
-      const delta = chunk.choices?.[0]?.delta;
-      if (delta?.content) yield { type: "text", text: delta.content };
-      for (const call of delta?.tool_calls ?? []) {
-        const current = calls.get(call.index) ?? { name: "", arguments: "" };
-        current.name += call.function?.name ?? "";
-        current.arguments += call.function?.arguments ?? "";
-        calls.set(call.index, current);
+
+      switch (event.type) {
+        case "response.output_text.delta":
+          if (event.delta) yield { type: "text", text: event.delta };
+          break;
+        case "response.output_item.done":
+          if (event.item?.type === "function_call" && event.item.name) {
+            yield { type: "tool_call", name: event.item.name, arguments: event.item.arguments ?? "{}" };
+          }
+          break;
+        case "response.failed":
+          throw new Error(`OpenAI error: ${event.response?.error?.message ?? "the answer failed."}`);
+        case "response.incomplete":
+          // Ran out of output tokens or was filtered: keep what arrived, but say so.
+          yield { type: "text", text: `\n\n_(The answer was cut short: ${event.response?.incomplete_details?.reason ?? "incomplete"}.)_` };
+          break;
+        case "error":
+          throw new Error(`OpenAI error: ${event.error?.message ?? event.message ?? "stream error."}`);
       }
     }
-  }
-
-  for (const call of calls.values()) {
-    if (call.name) yield { type: "tool_call", name: call.name, arguments: call.arguments };
   }
 }

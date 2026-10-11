@@ -236,7 +236,7 @@ are removed by the API route before the rows.
 It runs the same steps as the n8n workflows inside the web app: local
 extraction (or OpenAI vision for scans), passages, OpenAI embeddings, a Qdrant
 upsert, and an OpenAI digest. For answers it does the embed, then the hybrid
-search, then streams Chat Completions. The prompts are in
+search, then streams the answer from the Responses API (with the form tools). The prompts are in
 `ai-backend/openai/prompts.ts`. The passage and keyword logic is in
 `ai-backend/openai/search-index.ts`, and it's identical to the workflows, so
 both backends share one Qdrant collection. The browser still gets AG-UI
