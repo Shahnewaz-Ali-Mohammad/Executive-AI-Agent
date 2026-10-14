@@ -6,8 +6,10 @@
  * and dates travel as ISO strings.
  */
 import type { Citation } from "@/lib/citations";
-import type { FormAttachment, FormField, FormValues } from "@/lib/forms";
+import type { ChatCard } from "@/lib/cards";
+import type { FormField, FormValues } from "@/lib/forms";
 import type { ResponseModeId } from "@/lib/response-modes";
+import type { Recurrence } from "@/lib/schedule";
 
 export interface WorkspaceDTO {
   id: string;
@@ -56,8 +58,8 @@ export interface ChatMessageDTO {
   content: string;
   mode: ResponseModeId | null;
   citations: Citation[];
-  /** A form card shown with this answer, if any. */
-  form: FormAttachment | null;
+  /** A card shown with this answer (form, task, schedule …), if any. */
+  card: ChatCard | null;
   createdAt: string;
 }
 
@@ -84,24 +86,104 @@ export interface FormSubmissionDTO {
   updatedAt: string;
 }
 
+export interface TaskDTO {
+  id: string;
+  workspaceId: string;
+  conversationId: string | null;
+  title: string;
+  details: string;
+  assigneeName: string | null;
+  assigneeEmail: string | null;
+  dueAt: string | null;
+  status: "open" | "done" | "cancelled";
+  completedAt: string | null;
+  createdAt: string;
+  /** Email to the assignee about the new task: queued, sent, failed, skipped (no email set up), or null. */
+  assignmentEmail: string | null;
+}
+
+export interface LastRunDTO {
+  status: "queued" | "claimed" | "running" | "succeeded" | "failed";
+  at: string;
+  error: string | null;
+}
+
+export interface ScheduleDTO {
+  id: string;
+  workspaceId: string;
+  kind: "report" | "reminder";
+  title: string;
+  prompt: string;
+  mode: ResponseModeId | null;
+  recurrence: Recurrence;
+  timeZone: string;
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  active: boolean;
+  notifyEmail: string | null;
+  createdAt: string;
+  lastRun: LastRunDTO | null;
+}
+
+export type NotificationKind = "report" | "reminder" | "task_due" | "error";
+
+export interface NotificationDTO {
+  id: string;
+  workspaceId: string;
+  workspaceName: string;
+  kind: NotificationKind;
+  title: string;
+  /** First ~200 characters of the body, as plain text. */
+  preview: string;
+  readAt: string | null;
+  createdAt: string;
+  taskId: string | null;
+  scheduleId: string | null;
+}
+
+export interface NotificationDetailDTO extends NotificationDTO {
+  /** Markdown. */
+  body: string;
+  citations: Citation[];
+  mode: ResponseModeId | null;
+}
+
+/** Whether n8n's scheduler is checking in (it calls the app every minute). */
+export interface SchedulerStatusDTO {
+  /** Last time n8n asked for due work, or null if never. */
+  lastCheckAt: string | null;
+  /** Checked in within the last few minutes. */
+  healthy: boolean;
+  /** n8n has SMTP set up, so results can also be emailed. */
+  emailEnabled: boolean;
+}
+
+export interface NotificationFeedDTO {
+  items: NotificationDTO[];
+  unreadCount: number;
+  scheduler: SchedulerStatusDTO;
+}
+
 /** Extra fields the browser sends with each AG-UI run (in `forwardedProps`). */
 export interface ChatForwardedProps {
   workspaceId: string;
   /** The saved conversation this question belongs to. */
   conversationId: string;
   mode: ResponseModeId;
+  /** The browser's time zone (IANA), for "tomorrow at 9" and schedules. */
+  timeZone?: string;
 }
 
 /** Name of the AG-UI CUSTOM event that carries resolved citations. */
 export const CITATIONS_EVENT = "citations";
 
-/** Name of the AG-UI CUSTOM event that shows a form card with an answer. */
-export const FORM_EVENT = "form";
+/** Name of the AG-UI CUSTOM event that shows a card (form, task, schedule) with an answer. */
+export const CARD_EVENT = "card";
 
-/** Payload of the CUSTOM "form" event. */
-export interface FormEventValue {
+/** Payload of the CUSTOM "card" event. */
+export interface CardEventValue {
   messageId: string;
-  form: FormAttachment;
+  card: ChatCard;
 }
 
 /** Payload of the CUSTOM "citations" event. */

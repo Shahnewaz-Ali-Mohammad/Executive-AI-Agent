@@ -9,8 +9,9 @@
  *   - Template draft: the fields the AI proposed for a new form, with
  *     "Save template".
  */
-import { Check, ClipboardList, ExternalLink, FilePlus2 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { ClipboardList, ExternalLink, FilePlus2 } from "lucide-react";
+import { useState } from "react";
+import { CardFrame, DraftBadge, SavedBadge } from "./card-frame";
 import { FormFieldInputs } from "@/components/forms/form-field-inputs";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api-client";
@@ -36,41 +37,6 @@ interface FormCardContext {
 
 export function FormCard({ form, ...context }: FormCardContext & { form: FormFillAttachment | FormTemplateAttachment }) {
   return form.kind === "fill" ? <FillCard form={form} {...context} /> : <TemplateCard form={form} {...context} />;
-}
-
-function CardFrame({
-  icon,
-  title,
-  status,
-  children,
-}: {
-  icon: ReactNode;
-  title: string;
-  status: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <section className="mt-4 rounded-lg border border-rule bg-surface font-sans shadow-[0_1px_0_var(--rule)]">
-      <header className="flex items-center gap-2 border-b border-rule px-4 py-2.5">
-        {icon}
-        <h3 className="min-w-0 flex-1 truncate text-sm font-medium text-ink">{title}</h3>
-        {status}
-      </header>
-      <div className="space-y-4 p-4">{children}</div>
-    </section>
-  );
-}
-
-function SavedBadge({ label }: { label: string }) {
-  return (
-    <span className="flex items-center gap-1 rounded-full bg-ledger-soft px-2 py-0.5 text-xs text-ledger">
-      <Check className="size-3" aria-hidden /> {label}
-    </span>
-  );
-}
-
-function DraftBadge() {
-  return <span className="rounded-full bg-amber-soft px-2 py-0.5 text-xs text-amber">Not saved</span>;
 }
 
 function FillCard({

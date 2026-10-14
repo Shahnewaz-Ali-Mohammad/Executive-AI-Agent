@@ -6,7 +6,8 @@
  */
 import { z } from "zod";
 import { requireConversation } from "@/lib/data/conversations";
-import { createSubmission, listSubmissions, updateMessageForm } from "@/lib/data/forms";
+import { createSubmission, listSubmissions } from "@/lib/data/forms";
+import { updateMessageCard } from "@/lib/data/messages";
 import { requireWorkspace } from "@/lib/data/workspaces";
 import { handleRouteError, HttpError } from "@/lib/http";
 
@@ -40,8 +41,8 @@ export async function POST(request: Request, ctx: Context) {
 
     const submission = await createSubmission({ templateId, workspaceId, conversationId, values });
     if (messageId) {
-      await updateMessageForm(messageId, workspaceId, (form) =>
-        form.kind === "fill" ? { ...form, values: submission.values, submissionId: submission.id } : form,
+      await updateMessageCard(messageId, workspaceId, (card) =>
+        card.kind === "fill" ? { ...card, values: submission.values, submissionId: submission.id } : card,
       );
     }
     return Response.json(submission, { status: 201 });

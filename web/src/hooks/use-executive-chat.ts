@@ -8,7 +8,7 @@
  * and copy what the UI needs into React state:
  *   - messages        → the conversation
  *   - citations       → per assistant message, from the CUSTOM "citations" event
- *   - forms           → per assistant message, from the CUSTOM "form" event (form cards)
+ *   - cards           → per assistant message, from the CUSTOM "card" event (forms, tasks, schedules)
  *   - activity        → "Reading your documents…" while the backend searches
  *   - error           → from RUN_ERROR or a failed request
  *
@@ -20,16 +20,16 @@ import { HttpAgent, type AgentSubscriber, type Message } from "@ag-ui/client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api-client";
 import type { Citation } from "@/lib/citations";
-import type { FormAttachment } from "@/lib/forms";
+import type { ChatCard } from "@/lib/cards";
 import type { ChatSession } from "@/hooks/use-conversations";
 import type { ResponseModeId } from "@/lib/response-modes";
 import {
   CITATIONS_EVENT,
-  FORM_EVENT,
+  CARD_EVENT,
   type ChatForwardedProps,
   type ChatMessageDTO,
   type CitationsEventValue,
-  type FormEventValue,
+  type CardEventValue,
 } from "@/lib/types";
 
 export interface ChatMessage {
@@ -91,7 +91,7 @@ export function useExecutiveChat({ workspaceId, session, ensureConversation, onA
   const modesRef = useRef(new Map<string, ResponseModeId | null>());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [citations, setCitations] = useState<Record<string, Citation[]>>({});
-  const [forms, setForms] = useState<Record<string, FormAttachment>>({});
+  const [cards, setCards] = useState<Record<string, ChatCard>>({});
   const [isRunning, setIsRunning] = useState(false);
   const [activity, setActivity] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -115,9 +115,9 @@ export function useExecutiveChat({ workspaceId, session, ensureConversation, onA
         if (event.name === CITATIONS_EVENT) {
           const value = event.value as CitationsEventValue;
           setCitations((current) => ({ ...current, [value.messageId]: value.citations }));
-        } else if (event.name === FORM_EVENT) {
-          const value = event.value as FormEventValue;
-          setForms((current) => ({ ...current, [value.messageId]: value.form }));
+        } else if (event.name === CARD_EVENT) {
+          const value = event.value as CardEventValue;
+          setCards((current) => ({ ...current, [value.messageId]: value.card }));
         }
       },
       onRunErrorEvent: ({ event }) => setError(event.message),
@@ -139,7 +139,7 @@ export function useExecutiveChat({ workspaceId, session, ensureConversation, onA
           agent.setMessages(fromHistory(history));
           setMessages(toChatMessages(agent.messages, times, modes));
           setCitations(Object.fromEntries(history.map((m) => [m.id, m.citations])));
-          setForms(Object.fromEntries(history.flatMap((m) => (m.form ? [[m.id, m.form]] : []))));
+          setCards(Object.fromEntries(history.flatMap((m) => (m.card ? [[m.id, m.card]] : []))));
         })
         .catch((err) => !cancelled && setError(err instanceof Error ? err.message : "Could not load the chat."))
         .finally(() => !cancelled && setLoadingHistory(false));
@@ -168,7 +168,8 @@ export function useExecutiveChat({ workspaceId, session, ensureConversation, onA
 
       try {
         const conversationId = await ensureConversation();
-        const forwardedProps: ChatForwardedProps = { workspaceId, conversationId, mode };
+        const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const forwardedProps: ChatForwardedProps = { workspaceId, conversationId, mode, timeZone };
         await agent.runAgent({ forwardedProps });
         onAnswered?.();
       } catch (err) {
@@ -191,16 +192,16 @@ export function useExecutiveChat({ workspaceId, session, ensureConversation, onA
     setActivity(null);
   }, []);
 
-  /** Update a form card after it was saved (so it shows as saved). */
-  const updateForm = useCallback((messageId: string, form: FormAttachment) => {
-    setForms((current) => ({ ...current, [messageId]: form }));
+  /** Update a card after it was confirmed (so it shows as saved / created). */
+  const updateCard = useCallback((messageId: string, card: ChatCard) => {
+    setCards((current) => ({ ...current, [messageId]: card }));
   }, []);
 
   return {
     messages,
     citations,
-    forms,
-    updateForm,
+    cards,
+    updateCard,
     isRunning,
     activity,
     error,

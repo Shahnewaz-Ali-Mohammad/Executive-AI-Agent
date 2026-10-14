@@ -3,13 +3,15 @@
  *
  * Postgres holds the "business" records the app needs: workspaces, documents
  * and their status, the text of each page (for the citation viewer), and the
- * saved conversations, form templates and saved forms. The searchable chunks and embeddings live in Qdrant instead,
+ * saved conversations, form templates and saved forms, and automations
+ * (tasks, schedules, runs and notifications). The searchable chunks and embeddings live in Qdrant instead,
  * written by the n8n ingestion workflow.
  *
  * After changing this file, run `npm run db:generate` to create a migration,
  * then `npm run db:migrate` to apply it.
  */
 import {
+  boolean,
   index,
   integer,
   jsonb,
@@ -21,7 +23,9 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import type { Citation } from "@/lib/citations";
-import type { FormAttachment, FormField, FormValues } from "@/lib/forms";
+import type { ChatCard } from "@/lib/cards";
+import type { FormField, FormValues } from "@/lib/forms";
+import type { Recurrence } from "@/lib/schedule";
 
 /** Lifecycle of an uploaded document. */
 export const documentStatus = pgEnum("document_status", ["processing", "ready", "failed"]);
@@ -123,8 +127,11 @@ export const chatMessages = pgTable(
     mode: text("mode"),
     /** Citations found in an assistant answer, resolved to documents. */
     citations: jsonb("citations").$type<Citation[]>(),
-    /** A form card shown with an answer (a filled form, or a new template draft). */
-    form: jsonb("form").$type<FormAttachment>(),
+    /**
+     * A card shown with an answer: a filled form, a form template draft, or a
+     * task / schedule to confirm.
+     */
+    card: jsonb("card").$type<ChatCard>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -169,6 +176,123 @@ export const formSubmissions = pgTable(
   (table) => [index("form_submissions_workspace_idx").on(table.workspaceId, table.createdAt)],
 );
 
+// --- Automations (run by the n8n scheduler) -----------------------------------------
+
+export const taskStatus = pgEnum("task_status", ["open", "done", "cancelled"]);
+export const scheduleKind = pgEnum("schedule_kind", ["report", "reminder"]);
+
+/** Something assigned to a person, with an optional due date. */
+export const tasks = pgTable(
+  "tasks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    details: text("details").notNull().default(""),
+    assigneeName: text("assignee_name"),
+    /** If set, n8n emails the assignee when the task is created and when it falls due. */
+    assigneeEmail: text("assignee_email"),
+    dueAt: timestamp("due_at", { withTimezone: true }),
+    /** The CEO's time zone when it was created, for showing the deadline in emails. */
+    timeZone: text("time_zone").notNull().default("UTC"),
+    status: taskStatus("status").notNull().default("open"),
+    /** When the "task due" notification went out (so it's sent once). */
+    dueNotifiedAt: timestamp("due_notified_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("tasks_workspace_idx").on(table.workspaceId, table.status)],
+);
+
+/** A report or reminder that runs once or on a recurring schedule. */
+export const schedules = pgTable(
+  "schedules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    kind: scheduleKind("kind").notNull(),
+    title: text("title").notNull(),
+    /** Report: the question the AI answers each time. Reminder: the message. */
+    prompt: text("prompt").notNull(),
+    /** Report: the answer mode (brief, risk_scan …). */
+    mode: text("mode"),
+    recurrence: jsonb("recurrence").$type<Recurrence>().notNull(),
+    timeZone: text("time_zone").notNull(),
+    /** Next time it's due; null when a one-off has run. */
+    nextRunAt: timestamp("next_run_at", { withTimezone: true }),
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    active: boolean("active").notNull().default(true),
+    /** If set, n8n also emails the result here. */
+    notifyEmail: text("notify_email"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("schedules_due_idx").on(table.active, table.nextRunAt)],
+);
+
+/** One execution claimed by the scheduler: what ran, when, and how it went. */
+export const automationRuns = pgTable(
+  "automation_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    scheduleId: uuid("schedule_id").references(() => schedules.id, { onDelete: "set null" }),
+    taskId: uuid("task_id").references(() => tasks.id, { onDelete: "set null" }),
+    /** report | reminder | task_due | task_assigned */
+    type: text("type").notNull(),
+    /** queued → claimed (by n8n) → running → succeeded | failed */
+    status: text("status").notNull().default("queued"),
+    scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    error: text("error"),
+    notificationId: uuid("notification_id"),
+    /** How the result was delivered outside the app, e.g. { email: "sent" }. */
+    delivery: jsonb("delivery").$type<Record<string, string>>(),
+  },
+  (table) => [index("automation_runs_status_idx").on(table.status, table.startedAt)],
+);
+
+/** What shows under the bell: finished reports, reminders, due tasks, failures. */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    /** report | reminder | task_due | task_assigned | error */
+    kind: text("kind").notNull(),
+    title: text("title").notNull(),
+    /** Markdown (a full report, or a short message). */
+    body: text("body").notNull().default(""),
+    citations: jsonb("citations").$type<Citation[]>(),
+    mode: text("mode"),
+    taskId: uuid("task_id").references(() => tasks.id, { onDelete: "set null" }),
+    scheduleId: uuid("schedule_id").references(() => schedules.id, { onDelete: "set null" }),
+    runId: uuid("run_id"),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("notifications_workspace_idx").on(table.workspaceId, table.createdAt)],
+);
+
+/** Small app-wide values, e.g. when the n8n scheduler last checked in. */
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").$type<unknown>(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type Workspace = typeof workspaces.$inferSelect;
 export type DocumentRecord = typeof documents.$inferSelect;
 export type DocumentPage = typeof documentPages.$inferSelect;
@@ -176,3 +300,7 @@ export type Conversation = typeof conversations.$inferSelect;
 export type ChatMessageRecord = typeof chatMessages.$inferSelect;
 export type FormTemplate = typeof formTemplates.$inferSelect;
 export type FormSubmission = typeof formSubmissions.$inferSelect;
+export type Task = typeof tasks.$inferSelect;
+export type Schedule = typeof schedules.$inferSelect;
+export type AutomationRun = typeof automationRuns.$inferSelect;
+export type Notification = typeof notifications.$inferSelect;

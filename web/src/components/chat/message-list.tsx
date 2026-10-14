@@ -22,8 +22,8 @@ interface MessageListProps {
   isRunning: boolean;
   activity: string | null;
   onOpenCitation: (documentId: string, page: number) => void;
-  /** Renders the form card attached to an answer, if it has one. */
-  renderForm?: (messageId: string) => ReactNode;
+  /** Renders the card (form, task, schedule) attached to an answer, if it has one. */
+  renderCard?: (messageId: string) => ReactNode;
 }
 
 export function MessageList({
@@ -33,7 +33,7 @@ export function MessageList({
   isRunning,
   activity,
   onOpenCitation,
-  renderForm,
+  renderCard,
 }: MessageListProps) {
   const endRef = useRef<HTMLDivElement>(null);
   const lastMessage = messages.at(-1);
@@ -41,7 +41,8 @@ export function MessageList({
   // Follow the answer as it streams in.
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
-  }, [messages.length, lastMessage?.content.length, activity]);
+    // isRunning: a card (form, task, schedule) appears once the answer has finished.
+  }, [messages.length, lastMessage?.content.length, activity, isRunning]);
 
   // While a run is starting, the last message is still the question.
   const waitingForAnswer = isRunning && lastMessage?.role === "user";
@@ -83,7 +84,7 @@ export function MessageList({
               </div>
               {!isStreaming && (
                 <>
-                  {renderForm?.(message.id)}
+                  {renderCard?.(message.id)}
                   <SourceList citations={messageCitations} onOpenCitation={onOpenCitation} />
                   <div className="mt-2 flex items-center gap-2">
                     {message.mode && <ModeTag mode={message.mode} />}

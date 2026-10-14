@@ -56,6 +56,10 @@ const envSchema = z.object({
   N8N_SHARED_SECRET: z.string().default("local-dev-shared-secret-change-me"),
   /** Where n8n (inside Docker) reaches this app for callbacks. */
   APP_INTERNAL_URL: z.string().url().default("http://host.docker.internal:3100"),
+  /** Link to this app used in emails n8n sends (e.g. your ngrok or company URL). */
+  APP_PUBLIC_URL: z.string().url().default("http://localhost:3100"),
+  /** Time zone used when the browser doesn't say (IANA name, e.g. Asia/Dhaka). */
+  DEFAULT_TIME_ZONE: z.string().default("UTC"),
   /** Mark a document as failed if indexing hasn't finished after this many minutes. */
   INGEST_TIMEOUT_MINUTES: z.coerce.number().int().positive().default(30),
 

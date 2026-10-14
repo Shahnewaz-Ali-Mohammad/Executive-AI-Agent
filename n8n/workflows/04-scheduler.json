@@ -1,0 +1,416 @@
+{
+  "id": "ExecAgentSchedul",
+  "name": "Executive Agent · 4. Scheduler (tasks, reports, reminders)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 4 · Scheduler — tasks, reports, reminders\nRuns **every minute**. The web app keeps the tasks and schedules; this workflow is the clock\nand the postman.\n1. **Ask the app what's due** — the app queues scheduled reports and reminders whose time has\n   come, tasks past their deadline, and new tasks to announce, then hands them over\n   (each run only once, even if two executions overlap). This call is also the heartbeat\n   the app shows in the Tasks tab.\n2. **Run it** — one at a time, the app writes the report (same search + AI as the chat) or the\n   message, and saves it as a notification under the bell.\n3. **Email** — if the run has an email and SMTP is set up in `.env` (`SMTP_HOST` …), it's sent\n   from here. The app is told whether it went out (a failure shows up under the bell).\nSuccessful executions aren't saved (one per minute would fill the database); failed ones are.",
+        "height": 440,
+        "width": 900,
+        "color": 7
+      },
+      "id": "d24e3545-1b6f-5642-b0fb-e0a99ff03915",
+      "name": "Note: overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -520
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "5c031a54-6fca-56f7-8692-3be4a40e9809",
+      "name": "Every minute",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.APP_INTERNAL_URL || 'http://host.docker.internal:3100').replace(/\\/$/, '') }}/api/internal/automation/due",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-webhook-secret",
+              "value": "={{ $env.N8N_SHARED_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ emailEnabled: Boolean($env.SMTP_HOST) }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "fab1c280-ca32-50cb-a416-f0ecd16bea1d",
+      "name": "Ask the app what's due",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        0
+      ],
+      "notes": "Also the heartbeat: the Tasks tab warns when this hasn't happened for a few minutes."
+    },
+    {
+      "parameters": {
+        "jsCode": "// { runs: [{ runId, type, title }] } → one item each. No runs: the execution ends here.\nreturn ($json.runs ?? []).map((run) => ({ json: run }));\n"
+      },
+      "id": "97507246-206d-57f4-9a99-2c48842571da",
+      "name": "One item per run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.APP_INTERNAL_URL || 'http://host.docker.internal:3100').replace(/\\/$/, '') }}/api/internal/automation/runs/{{ $json.runId }}/execute",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-webhook-secret",
+              "value": "={{ $env.N8N_SHARED_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({}) }}",
+        "options": {
+          "timeout": 600000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 0
+            }
+          }
+        }
+      },
+      "id": "4b76299d-9c09-565a-a0b7-0c0ee7dc8da4",
+      "name": "Run it",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        0
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "One run at a time. Reports can take a few minutes with the deep model."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4c8c01e3-3eb2-5f43-9971-3acf2e48cb1a",
+              "leftValue": "={{ $json.email?.to }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "770a4359-523c-5e67-82f4-2eef92c5e9bb",
+      "name": "Email to send?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "84e94f33-8b93-5f6f-88ca-4100649371db",
+              "leftValue": "={{ Boolean($env.SMTP_HOST) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "da3ac451-75d1-5861-b2ce-f3c83c474e7c",
+      "name": "SMTP set up?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1100,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.SMTP_FROM || $env.SMTP_USER }}",
+        "toEmail": "={{ $json.email.to }}",
+        "subject": "={{ $json.email.subject }}",
+        "emailFormat": "both",
+        "text": "={{ $json.email.text }}",
+        "html": "={{ $json.email.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "bbe4faa7-3505-551e-9123-bebed927fead",
+      "name": "Send email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1320,
+        -200
+      ],
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "smtp": {
+          "id": "ExecAgentSmtp001",
+          "name": "SMTP (Executive Agent)"
+        }
+      },
+      "notes": "Uses the SMTP account from .env (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM)."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.APP_INTERNAL_URL || 'http://host.docker.internal:3100').replace(/\\/$/, '') }}/api/internal/automation/runs/{{ $('Run it').item.json.runId }}/delivered",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-webhook-secret",
+              "value": "={{ $env.N8N_SHARED_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ email: 'sent', error: null }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "3c8b0b76-ffca-5da2-8c36-a4cdc24a0ec6",
+      "name": "Tell app: sent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1560,
+        -280
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.APP_INTERNAL_URL || 'http://host.docker.internal:3100').replace(/\\/$/, '') }}/api/internal/automation/runs/{{ $('Run it').item.json.runId }}/delivered",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-webhook-secret",
+              "value": "={{ $env.N8N_SHARED_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ email: 'failed', error: String($json.error?.message ?? $json.error ?? 'The SMTP server refused the email.').slice(0, 1000) }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "a753acdc-fb3e-557c-ae71-c344565ff636",
+      "name": "Tell app: failed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1560,
+        -120
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.APP_INTERNAL_URL || 'http://host.docker.internal:3100').replace(/\\/$/, '') }}/api/internal/automation/runs/{{ $('Run it').item.json.runId }}/delivered",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-webhook-secret",
+              "value": "={{ $env.N8N_SHARED_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ email: 'skipped', error: null }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "ae20a804-ee3b-547f-9d52-7cd108e69eed",
+      "name": "Tell app: no SMTP",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        40
+      ],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Every minute": {
+      "main": [
+        [
+          {
+            "node": "Ask the app what's due",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask the app what's due": {
+      "main": [
+        [
+          {
+            "node": "One item per run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per run": {
+      "main": [
+        [
+          {
+            "node": "Run it",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run it": {
+      "main": [
+        [
+          {
+            "node": "Email to send?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email to send?": {
+      "main": [
+        [
+          {
+            "node": "SMTP set up?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "SMTP set up?": {
+      "main": [
+        [
+          {
+            "node": "Send email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tell app: no SMTP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send email": {
+      "main": [
+        [
+          {
+            "node": "Tell app: sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tell app: failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all"
+  },
+  "active": false,
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

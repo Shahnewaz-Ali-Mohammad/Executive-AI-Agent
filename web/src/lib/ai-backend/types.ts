@@ -10,7 +10,7 @@
  * between them is a single setting (AI_BACKEND in .env).
  */
 import { z } from "zod";
-import type { FormAttachment } from "@/lib/forms";
+import type { ChatCard } from "@/lib/cards";
 import type { ResponseModeId } from "@/lib/response-modes";
 import type { FormTemplateDTO } from "@/lib/types";
 
@@ -41,12 +41,19 @@ export interface AnswerRequest {
   documentNames: string[];
   /** Form templates the AI may fill in (or it may draft a new one). */
   formTemplates: FormTemplateDTO[];
+  /**
+   * Offer the actions (forms, tasks, schedules) as tools. Off for scheduled
+   * reports, which only answer.
+   */
+  actions: boolean;
+  /** The CEO's time zone (IANA), for "tomorrow at 9" and "every Monday". */
+  timeZone: string;
   /** Fires if the CEO stops the answer or closes the page. */
   signal: AbortSignal;
 }
 
-/** A piece of an answer: text, or a form card to show with it. */
-export type AnswerChunk = string | { form: FormAttachment };
+/** A piece of an answer: text, or a card to show with it. */
+export type AnswerChunk = string | { card: ChatCard };
 
 export interface AiBackend {
   /**
@@ -60,8 +67,8 @@ export interface AiBackend {
   removeDocument(input: { documentId: string; workspaceId: string }): Promise<void>;
 
   /**
-   * Stream the answer: text pieces in order, and optionally one form card
-   * (a filled form or a new template draft) after the text.
+   * Stream the answer: text pieces in order, and optionally one card (a
+   * filled form, a template draft, a task or a schedule) after the text.
    */
   streamAnswer(request: AnswerRequest): AsyncIterable<AnswerChunk>;
 }

@@ -2,54 +2,75 @@
 # -----------------------------------------------------------------------------
 # n8n start-up script (used by docker-compose.yml).
 #
-# On EVERY start it:
-#   - (re)creates the OpenAI credential from OPENAI_API_KEY in .env, so a key
-#     added or changed in .env is picked up by `docker compose up -d`.
-#     (Only the "OpenAI model" node needs it; other steps read .env directly.)
+# On EVERY start it (re)creates the credentials from .env, so a key added or
+# changed in .env is picked up by `docker compose up -d`:
+#   - OpenAI  (OPENAI_API_KEY)             used by the chat workflow's model node
+#   - SMTP    (SMTP_HOST, SMTP_USER, ...)  used by the scheduler to send emails
+#     (always created so the workflow loads; emails are only sent when SMTP_HOST is set)
 #
-# On the FIRST start only it also:
-#   - imports the three workflows from /workflows (the repo's n8n/workflows folder)
-#   - publishes (activates) them, so their webhooks are live
-# Then it starts n8n normally.
-#
-# Later starts skip the workflow import so changes you make in the n8n editor are kept.
-# To re-import the workflows from the repo (overwrites editor changes):
-#   docker compose exec n8n rm /home/node/.n8n/.executive-agent-imported
+# Workflows: each file in /workflows (the repo's n8n/workflows folder) is
+# imported and published the first time this n8n sees it. A workflow that
+# was imported before is left alone, so changes made in the n8n editor are
+# kept, while workflows added to the repo later are still picked up.
+# To re-import one from the repo (overwrites editor changes), delete its marker:
+#   docker compose exec n8n rm /home/node/.n8n/.executive-agent/<workflow id>
 #   docker compose restart n8n
+# (ids: ExecAgentIngest1, ExecAgentChat001, ExecAgentDelete1, ExecAgentSchedul)
 # -----------------------------------------------------------------------------
 set -eu
 
-MARKER=/home/node/.n8n/.executive-agent-imported
-WORKFLOW_IDS="ExecAgentIngest1 ExecAgentChat001 ExecAgentDelete1"
+STATE=/home/node/.n8n/.executive-agent
+mkdir -p "$STATE"
 
-# --- OpenAI credential (every start) --------------------------------------------
+# Installs from before per-workflow markers imported the first three together.
+if [ -f /home/node/.n8n/.executive-agent-imported ]; then
+  touch "$STATE/ExecAgentIngest1" "$STATE/ExecAgentChat001" "$STATE/ExecAgentDelete1"
+  rm -f /home/node/.n8n/.executive-agent-imported
+fi
+
+# --- Credentials (every start) -----------------------------------------------------
 # Written from the environment and deleted right after import.
 CREDS=/tmp/executive-agent-credentials.json
 node -e '
-  const creds = [{
-    id: "ExecAgentOpenAi1",
-    name: "OpenAI (Executive Agent)",
-    type: "openAiApi",
-    data: {
-      apiKey: process.env.OPENAI_API_KEY || "",
-      url: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
+  const env = process.env;
+  const port = Number(env.SMTP_PORT || 587);
+  const creds = [
+    {
+      id: "ExecAgentOpenAi1",
+      name: "OpenAI (Executive Agent)",
+      type: "openAiApi",
+      data: { apiKey: env.OPENAI_API_KEY || "", url: env.OPENAI_BASE_URL || "https://api.openai.com/v1" },
     },
-  }];
+    {
+      id: "ExecAgentSmtp001",
+      name: "SMTP (Executive Agent)",
+      type: "smtp",
+      data: {
+        host: env.SMTP_HOST || "smtp.invalid",
+        port,
+        user: env.SMTP_USER || "",
+        password: env.SMTP_PASS || "",
+        // Port 465 uses TLS from the start; 587/25 upgrade with STARTTLS.
+        secure: env.SMTP_SECURE ? env.SMTP_SECURE === "true" : port === 465,
+        disableStartTls: false,
+      },
+    },
+  ];
   require("fs").writeFileSync(process.argv[1], JSON.stringify(creds));
 ' "$CREDS"
 n8n import:credentials --input="$CREDS"
 rm -f "$CREDS"
 
-# --- Workflows (first start only) -------------------------------------------------
-if [ ! -f "$MARKER" ]; then
-  echo "[executive-agent] First start: importing workflows ..."
-  n8n import:workflow --separate --input=/workflows
-  for id in $WORKFLOW_IDS; do
+# --- Workflows (each one the first time it's seen) ----------------------------------
+for file in /workflows/*.json; do
+  id=$(node -e 'process.stdout.write(String(require(process.argv[1]).id || ""))' "$file")
+  [ -n "$id" ] || continue
+  if [ ! -f "$STATE/$id" ]; then
+    echo "[executive-agent] Importing workflow $id ($(basename "$file")) ..."
+    n8n import:workflow --input="$file"
     n8n publish:workflow --id="$id"
-  done
-
-  touch "$MARKER"
-  echo "[executive-agent] Import done."
-fi
+    touch "$STATE/$id"
+  fi
+done
 
 exec n8n start

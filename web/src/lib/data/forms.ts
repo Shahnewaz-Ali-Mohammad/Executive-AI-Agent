@@ -3,20 +3,19 @@
  * in lib/forms.ts, so bad data never reaches the database.
  */
 import "server-only";
-import { and, asc, desc, eq, getTableColumns, sql } from "drizzle-orm";
+import { asc, desc, eq, getTableColumns, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import {
   normalizeFields,
   templateInputSchema,
   validateValues,
-  type FormAttachment,
   type FormValues,
   type TemplateInput,
 } from "@/lib/forms";
 import { HttpError, isUuid } from "@/lib/http";
 import type { FormSubmissionDTO, FormTemplateDTO } from "@/lib/types";
 
-const { formTemplates, formSubmissions, chatMessages } = schema;
+const { formTemplates, formSubmissions } = schema;
 
 // --- Templates ------------------------------------------------------------------
 
@@ -166,26 +165,4 @@ export async function updateSubmission(id: string, rawValues: Record<string, unk
 export async function deleteSubmission(id: string): Promise<void> {
   await requireSubmission(id);
   await db.delete(formSubmissions).where(eq(formSubmissions.id, id));
-}
-
-// --- Form cards in the chat -----------------------------------------------------------
-
-/**
- * After a form card is saved, record that on its chat message, so reopening
- * the conversation shows it as saved (with the saved values).
- */
-export async function updateMessageForm(
-  messageId: string,
-  workspaceId: string,
-  update: (form: FormAttachment) => FormAttachment,
-): Promise<void> {
-  const [row] = await db
-    .select({ form: chatMessages.form })
-    .from(chatMessages)
-    .where(and(eq(chatMessages.id, messageId), eq(chatMessages.workspaceId, workspaceId)));
-  if (!row?.form) return; // not a form message in this workspace: nothing to update
-  await db
-    .update(chatMessages)
-    .set({ form: update(row.form) })
-    .where(eq(chatMessages.id, messageId));
 }

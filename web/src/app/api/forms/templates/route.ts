@@ -5,7 +5,8 @@
  *              messageId?, workspaceId? }  (messageId: the chat card it was saved from)
  */
 import { z } from "zod";
-import { createTemplate, listTemplates, updateMessageForm } from "@/lib/data/forms";
+import { createTemplate, listTemplates } from "@/lib/data/forms";
+import { updateMessageCard } from "@/lib/data/messages";
 import { requireWorkspace } from "@/lib/data/workspaces";
 import { handleRouteError, HttpError } from "@/lib/http";
 
@@ -29,8 +30,8 @@ export async function POST(request: Request) {
     const source = sourceSchema.safeParse(body);
     if (source.success && source.data.messageId && source.data.workspaceId) {
       await requireWorkspace(source.data.workspaceId);
-      await updateMessageForm(source.data.messageId, source.data.workspaceId, (form) =>
-        form.kind === "template" ? { ...form, templateId: template.id, fields: template.fields } : form,
+      await updateMessageCard(source.data.messageId, source.data.workspaceId, (card) =>
+        card.kind === "template" ? { ...card, templateId: template.id, fields: template.fields } : card,
       );
     }
     return Response.json(template, { status: 201 });

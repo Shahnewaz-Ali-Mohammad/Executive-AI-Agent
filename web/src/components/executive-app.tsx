@@ -4,24 +4,30 @@
  * The whole app screen. It owns the state and wires the pieces together:
  *
  *   ┌──────────────────┬──────────────────────────┬────────────────────┐
- *   │ Workspace ▾      │ Conversation             │ Right panel:       │
+ *   │ Workspace ▾      │ Conversation        🔔   │ Right panel:       │
  *   │ + New convers.   │ answers with citations,  │ - source document  │
- *   │ [Chats|Files|    │ form cards, date and     │ - saved form       │
- *   │  Forms] grouped, │ time on each message;    │ - template editor  │
- *   │ searchable lists │ question box + modes     │                    │
+ *   │ [Chats|Files|    │ cards (forms, tasks,     │ - saved form       │
+ *   │  Forms|Tasks]    │ schedules), date and     │ - template editor  │
+ *   │ grouped lists    │ time; question + modes   │ - notification     │
  *   └──────────────────┴──────────────────────────┴────────────────────┘
+ *
+ * The bell shows notifications from n8n's scheduler: finished reports,
+ * reminders, tasks falling due.
  *
  * On phones the library becomes a slide-in drawer and the viewer covers the
  * screen, so each part gets the full width.
  */
 import { LogOut, Menu, SquarePen, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { Composer } from "@/components/chat/composer";
 import { ConversationList } from "@/components/library/conversation-list";
 import { EmptyState } from "@/components/chat/empty-state";
 import { MessageList } from "@/components/chat/message-list";
-import { FormCard } from "@/components/chat/form-card";
+import { ChatCard } from "@/components/chat/chat-card";
+import { TasksPanel } from "@/components/automation/tasks-panel";
+import { NotificationBell } from "@/components/notifications/notification-bell";
+import { NotificationPanel } from "@/components/notifications/notification-panel";
 import { FormsPanel } from "@/components/forms/forms-panel";
 import { SubmissionPanel } from "@/components/forms/submission-panel";
 import { TemplateEditor } from "@/components/forms/template-editor";
@@ -29,10 +35,12 @@ import { DocumentLibrary } from "@/components/library/document-library";
 import { WorkspaceSwitcher } from "@/components/library/workspace-switcher";
 import { IconButton } from "@/components/ui/button";
 import { SourceViewer } from "@/components/viewer/source-viewer";
+import { useAutomations } from "@/hooks/use-automations";
 import { useConversations, type ChatSession } from "@/hooks/use-conversations";
 import { useDocuments } from "@/hooks/use-documents";
 import { useForms } from "@/hooks/use-forms";
 import { useExecutiveChat } from "@/hooks/use-executive-chat";
+import { useNotifications } from "@/hooks/use-notifications";
 import { useWorkspaces } from "@/hooks/use-workspaces";
 import { api } from "@/lib/api-client";
 import { FILE_INPUT_ACCEPT } from "@/lib/file-types";
@@ -40,13 +48,14 @@ import type { DocumentDTO, WorkspaceDTO } from "@/lib/types";
 import { DEFAULT_RESPONSE_MODE, type ResponseModeId } from "@/lib/response-modes";
 import { cn } from "@/lib/utils";
 
-type SidebarTab = "chats" | "files" | "forms";
+type SidebarTab = "chats" | "files" | "forms" | "tasks";
 
 /** What the right-hand panel shows. */
 type RightPanel =
   | { kind: "source"; documentId: string; page: number }
   | { kind: "submission"; submissionId: string }
-  | { kind: "template"; templateId: string | null }; // null = new template
+  | { kind: "template"; templateId: string | null } // null = new template
+  | { kind: "notification"; notificationId: string };
 
 export function ExecutiveApp() {
   const workspaces = useWorkspaces();
@@ -97,6 +106,9 @@ function WorkspaceScreen({ workspace, workspaces, mode, onModeChange }: Workspac
   const docs = useDocuments(workspaceId);
   const convs = useConversations(workspaceId);
   const forms = useForms(workspaceId);
+  const automations = useAutomations(workspaceId);
+  // New notifications usually mean a schedule ran or a task fell due: refresh the Tasks tab.
+  const notifications = useNotifications(automations.refresh);
 
   const [panel, setPanel] = useState<RightPanel | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false); // phones only
@@ -127,7 +139,21 @@ function WorkspaceScreen({ workspace, workspaces, mode, onModeChange }: Workspac
     setPanel({ kind: "template", templateId });
     setLibraryOpen(false);
   }, []);
+  const openNotification = useCallback((notificationId: string) => {
+    setPanel({ kind: "notification", notificationId });
+    setLibraryOpen(false);
+  }, []);
   const closePanel = useCallback(() => setPanel(null), []);
+
+  /** Show the Tasks tab; on phones that means opening the drawer (and closing a full-screen panel). */
+  const openTasks = useCallback(() => {
+    setTab("tasks");
+    void automations.refresh();
+    if (window.matchMedia("(max-width: 1023px)").matches) {
+      setPanel(null);
+      setLibraryOpen(true);
+    }
+  }, [automations]);
 
   async function handleLogout() {
     await api.logout().catch(() => undefined);
@@ -185,6 +211,7 @@ function WorkspaceScreen({ workspace, workspaces, mode, onModeChange }: Workspac
               { id: "chats", label: "Chats", count: convs.conversations.length },
               { id: "files", label: "Files", count: docs.documents.length },
               { id: "forms", label: "Forms", count: forms.submissions.length },
+              { id: "tasks", label: "Tasks", count: automations.tasks.filter((t) => t.status === "open").length },
             ] as const
           ).map((item) => (
             <button
@@ -234,6 +261,20 @@ function WorkspaceScreen({ workspace, workspaces, mode, onModeChange }: Workspac
               onDropFiles={uploadFiles}
               onOpen={(id) => openSource(id, 1)}
               onDelete={docs.remove}
+            />
+          ) : tab === "tasks" ? (
+            <TasksPanel
+              tasks={automations.tasks}
+              schedules={automations.schedules}
+              scheduler={notifications.scheduler}
+              loading={automations.loading}
+              error={automations.error}
+              onClearError={automations.clearError}
+              onSetTaskStatus={automations.setTaskStatus}
+              onDeleteTask={automations.deleteTask}
+              onSetScheduleActive={automations.setScheduleActive}
+              onRunScheduleNow={automations.runScheduleNow}
+              onDeleteSchedule={automations.deleteSchedule}
             />
           ) : (
             <FormsPanel
@@ -295,6 +336,19 @@ function WorkspaceScreen({ workspace, workspaces, mode, onModeChange }: Workspac
           onFormsSaved={forms.refresh}
           onOpenSubmission={openSubmission}
           onOpenTemplate={openTemplate}
+          onAutomationsChanged={automations.refresh}
+          onOpenTasks={openTasks}
+          headerActions={
+            <NotificationBell
+              items={notifications.items}
+              unreadCount={notifications.unreadCount}
+              scheduler={notifications.scheduler}
+              showWorkspace={workspaces.workspaces.length > 1}
+              activeId={panel?.kind === "notification" ? panel.notificationId : null}
+              onOpen={openNotification}
+              onMarkAllRead={notifications.markAllRead}
+            />
+          }
           onOpenMenu={() => setLibraryOpen(true)}
           onAttach={() => fileInputRef.current?.click()}
         />
@@ -309,8 +363,13 @@ function WorkspaceScreen({ workspace, workspaces, mode, onModeChange }: Workspac
         <div className="fixed inset-0 z-50 lg:static lg:z-auto lg:w-[min(46vw,46rem)] lg:shrink-0 lg:border-l lg:border-rule">
           <RightPanelContent
             panel={panel}
+            workspaceId={workspaceId}
             documents={docs.documents}
             forms={forms}
+            notifications={notifications}
+            onOpenSource={openSource}
+            onOpenTasks={openTasks}
+            onSwitchWorkspace={workspaces.select}
             onPanelChange={setPanel}
             onClose={closePanel}
             onOpenConversation={(conversationId) => {
@@ -325,18 +384,28 @@ function WorkspaceScreen({ workspace, workspaces, mode, onModeChange }: Workspac
   );
 }
 
-/** The right-hand panel: a source document, a saved form, or the template editor. */
+/** The right-hand panel: a source document, a saved form, the template editor, or a notification. */
 function RightPanelContent({
   panel,
+  workspaceId,
   documents,
   forms,
+  notifications,
+  onOpenSource,
+  onOpenTasks,
+  onSwitchWorkspace,
   onPanelChange,
   onClose,
   onOpenConversation,
 }: {
   panel: RightPanel;
+  workspaceId: string;
   documents: DocumentDTO[];
   forms: ReturnType<typeof useForms>;
+  notifications: ReturnType<typeof useNotifications>;
+  onOpenSource: (documentId: string, page: number) => void;
+  onOpenTasks: () => void;
+  onSwitchWorkspace: (workspaceId: string) => void;
   onPanelChange: (panel: RightPanel) => void;
   onClose: () => void;
   onOpenConversation: (conversationId: string) => void;
@@ -348,6 +417,23 @@ function RightPanelContent({
         document={documents.find((doc) => doc.id === panel.documentId)}
         page={panel.page}
         onPageChange={(page) => onPanelChange({ ...panel, page })}
+        onClose={onClose}
+      />
+    );
+  }
+
+  if (panel.kind === "notification") {
+    return (
+      <NotificationPanel
+        key={panel.notificationId}
+        notificationId={panel.notificationId}
+        workspaceId={workspaceId}
+        documents={documents.filter((d) => d.status === "ready").map(({ id, fileName }) => ({ id, fileName }))}
+        onOpenCitation={onOpenSource}
+        onSwitchWorkspace={onSwitchWorkspace}
+        onOpenTasks={onOpenTasks}
+        onOpened={notifications.markedRead}
+        onDelete={notifications.remove}
         onClose={onClose}
       />
     );
@@ -430,6 +516,10 @@ interface ChatPanelProps {
   onFormsSaved: () => void;
   onOpenSubmission: (submissionId: string) => void;
   onOpenTemplate: (templateId: string) => void;
+  onAutomationsChanged: () => void;
+  onOpenTasks: () => void;
+  /** Shown at the right of the header (the notification bell). */
+  headerActions: ReactNode;
   onOpenMenu: () => void;
   onAttach: () => void;
 }
@@ -453,6 +543,9 @@ function ChatPanel({
   onFormsSaved,
   onOpenSubmission,
   onOpenTemplate,
+  onAutomationsChanged,
+  onOpenTasks,
+  headerActions,
   onOpenMenu,
   onAttach,
 }: ChatPanelProps) {
@@ -493,6 +586,7 @@ function ChatPanel({
             <span className="hidden sm:inline">New conversation</span>
           </button>
         )}
+        {headerActions}
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -514,19 +608,21 @@ function ChatPanel({
             isRunning={chat.isRunning}
             activity={chat.activity}
             onOpenCitation={onOpenSource}
-            renderForm={(messageId) => {
-              const form = chat.forms[messageId];
-              if (!form) return null;
+            renderCard={(messageId) => {
+              const card = chat.cards[messageId];
+              if (!card) return null;
               return (
-                <FormCard
-                  form={form}
+                <ChatCard
+                  card={card}
                   messageId={messageId}
                   workspaceId={workspaceId}
                   conversationId={conversationId}
-                  onUpdated={(updated) => chat.updateForm(messageId, updated)}
-                  onSaved={onFormsSaved}
+                  onUpdated={(updated) => chat.updateCard(messageId, updated)}
+                  onFormsSaved={onFormsSaved}
+                  onAutomationsChanged={onAutomationsChanged}
                   onOpenSubmission={onOpenSubmission}
                   onOpenTemplate={onOpenTemplate}
+                  onOpenTasks={onOpenTasks}
                 />
               );
             }}

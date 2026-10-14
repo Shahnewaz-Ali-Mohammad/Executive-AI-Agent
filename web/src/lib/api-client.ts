@@ -3,9 +3,14 @@
  * Every call throws an `Error` with the server's message when it fails,
  * so components can show it directly.
  */
+import type { ScheduleInput, TaskInput } from "@/lib/cards";
 import type { FormValues, TemplateInput } from "@/lib/forms";
 import type {
   ChatMessageDTO,
+  NotificationDetailDTO,
+  NotificationFeedDTO,
+  ScheduleDTO,
+  TaskDTO,
   ConversationDTO,
   DocumentDTO,
   DocumentPageDTO,
@@ -80,6 +85,30 @@ export const api = {
   updateSubmission: (id: string, values: FormValues) =>
     request<FormSubmissionDTO>(`/api/forms/submissions/${id}`, json("PATCH", { values })),
   deleteSubmission: (id: string) => request<void>(`/api/forms/submissions/${id}`, { method: "DELETE" }),
+
+  // Tasks
+  listTasks: (workspaceId: string) => request<TaskDTO[]>(`/api/workspaces/${workspaceId}/tasks`),
+  createTask: (workspaceId: string, input: TaskInput & { conversationId?: string | null; messageId?: string | null }) =>
+    request<TaskDTO>(`/api/workspaces/${workspaceId}/tasks`, json("POST", input)),
+  setTaskStatus: (id: string, status: TaskDTO["status"]) => request<TaskDTO>(`/api/tasks/${id}`, json("PATCH", { status })),
+  deleteTask: (id: string) => request<void>(`/api/tasks/${id}`, { method: "DELETE" }),
+
+  // Scheduled reports and reminders
+  listSchedules: (workspaceId: string) => request<ScheduleDTO[]>(`/api/workspaces/${workspaceId}/schedules`),
+  createSchedule: (
+    workspaceId: string,
+    input: ScheduleInput & { conversationId?: string | null; messageId?: string | null },
+  ) => request<ScheduleDTO>(`/api/workspaces/${workspaceId}/schedules`, json("POST", input)),
+  setScheduleActive: (id: string, active: boolean) =>
+    request<ScheduleDTO>(`/api/schedules/${id}`, json("PATCH", { active })),
+  runScheduleNow: (id: string) => request<ScheduleDTO>(`/api/schedules/${id}/run`, { method: "POST" }),
+  deleteSchedule: (id: string) => request<void>(`/api/schedules/${id}`, { method: "DELETE" }),
+
+  // Notifications
+  notifications: () => request<NotificationFeedDTO>("/api/notifications", { cache: "no-store" }),
+  openNotification: (id: string) => request<NotificationDetailDTO>(`/api/notifications/${id}`),
+  markNotificationsRead: (ids?: string[]) => request<void>("/api/notifications/read", json("POST", ids ? { ids } : {})),
+  deleteNotification: (id: string) => request<void>(`/api/notifications/${id}`, { method: "DELETE" }),
 
   // Voice
   transcribe: (audio: Blob) => {

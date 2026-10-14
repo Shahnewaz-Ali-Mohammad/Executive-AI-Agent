@@ -2,9 +2,9 @@
  * Chat message data access. Every message belongs to one saved conversation.
  */
 import "server-only";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import type { Citation } from "@/lib/citations";
-import type { FormAttachment } from "@/lib/forms";
+import type { ChatCard } from "@/lib/cards";
 import { db, schema } from "@/lib/db";
 import { isResponseMode, type ResponseModeId } from "@/lib/response-modes";
 import type { ChatMessageDTO } from "@/lib/types";
@@ -19,7 +19,7 @@ function toDTO(row: schema.ChatMessageRecord): ChatMessageDTO {
     content: row.content,
     mode: isResponseMode(row.mode) ? row.mode : null,
     citations: row.citations ?? [],
-    form: row.form ?? null,
+    card: row.card ?? null,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -41,7 +41,7 @@ export async function saveMessage(input: {
   content: string;
   mode?: ResponseModeId;
   citations?: Citation[];
-  form?: FormAttachment | null;
+  card?: ChatCard | null;
 }): Promise<void> {
   await db
     .insert(chatMessages)
@@ -53,11 +53,28 @@ export async function saveMessage(input: {
       content: input.content,
       mode: input.mode ?? null,
       citations: input.citations ?? null,
-      form: input.form ?? null,
+      card: input.card ?? null,
     })
     // The browser may retry a run with the same message id; keep the first copy.
     .onConflictDoNothing();
 
   // Move the conversation to the top; the first question becomes its title.
   await touchConversation(input.conversationId, input.role === "user" ? input.content : undefined);
+}
+
+/**
+ * After a card is confirmed (form saved, task created …), record that on its
+ * chat message, so reopening the conversation shows it as done.
+ */
+export async function updateMessageCard(
+  messageId: string,
+  workspaceId: string,
+  update: (card: ChatCard) => ChatCard,
+): Promise<void> {
+  const [row] = await db
+    .select({ card: chatMessages.card })
+    .from(chatMessages)
+    .where(and(eq(chatMessages.id, messageId), eq(chatMessages.workspaceId, workspaceId)));
+  if (!row?.card) return; // not a card message in this workspace: nothing to update
+  await db.update(chatMessages).set({ card: update(row.card) }).where(eq(chatMessages.id, messageId));
 }

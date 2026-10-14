@@ -130,7 +130,7 @@ ${list}`;
 export function attachmentFromToolCall(
   call: { name: string; arguments: string },
   templates: FormTemplateDTO[],
-): { form: FormAttachment; text: string } | null {
+): { card: FormAttachment; text: string } | null {
   let args: Record<string, unknown>;
   try {
     args = JSON.parse(call.arguments || "{}") as Record<string, unknown>;
@@ -161,7 +161,7 @@ export function attachmentFromToolCall(
       return null;
     }
     return {
-      form: { kind: "template", name: parsed.data.name, description: parsed.data.description, fields, templateId: null },
+      card: { kind: "template", name: parsed.data.name, description: parsed.data.description, fields, templateId: null },
       text: `Here's a draft **${parsed.data.name}** form with ${fields.length} fields. Check it and press **Save template**.`,
     };
   }
@@ -172,7 +172,7 @@ export function attachmentFromToolCall(
     const { values, missing } = validateValues(template.fields, args);
     const missingLabels = missing.map((key) => template.fields.find((f) => f.key === key)?.label ?? key);
     return {
-      form: {
+      card: {
         kind: "fill",
         templateId: template.id,
         templateName: template.name,

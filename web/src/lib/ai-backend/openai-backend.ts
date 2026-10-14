@@ -21,9 +21,11 @@ import { completeIngestion } from "@/lib/data/documents";
 import { env } from "@/lib/env";
 import { extractPages } from "@/lib/extract";
 import { embed, respond, streamChat } from "./openai/client";
+import { actionCardFromToolCall, actionRules, actionTools } from "./openai/action-tools";
 import { attachmentFromToolCall, formRules, formTools } from "./openai/form-tools";
 import { BASE_RULES, DIGEST_INSTRUCTIONS, MODE_PROMPTS, TRANSCRIBE_INSTRUCTIONS } from "./openai/prompts";
 import { buildPassages, deleteDocumentPoints, hybridSearch, keywordVector, savePoints } from "./openai/search-index";
+import type { ChatCard } from "@/lib/cards";
 import type { AiBackend, AnswerRequest, IngestRequest } from "./types";
 
 /** Largest scan/photo sent to OpenAI's vision model (its limit is 50 MB per request). */
@@ -217,30 +219,35 @@ export const openaiBackend: AiBackend = {
     }
 
     const templates = request.formTemplates;
+    const now = new Date();
+    const rules = request.actions
+      ? `\n\n${formRules(templates, now)}\n\n${actionRules(request.timeZone, now)}`
+      : "";
     let wroteText = false;
-    let card: ReturnType<typeof attachmentFromToolCall> = null;
+    let card: { card: ChatCard; text: string } | null = null;
     for await (const part of streamChat({
       model: mode.deep ? env.OPENAI_MODEL_DEEP : env.OPENAI_MODEL,
       reasoningEffort: mode.deep ? "medium" : "low",
-      system: `${BASE_RULES}\n\n${mode.instructions}\n\n${formRules(templates, new Date())}`,
+      system: `${BASE_RULES}\n\n${mode.instructions}${rules}`,
       user: buildPrompt(request, hits),
-      tools: formTools(templates),
+      tools: request.actions ? [...formTools(templates), ...actionTools()] : [],
       signal: request.signal,
     })) {
       if (part.type === "text") {
         wroteText = true;
         yield part.text;
       } else {
-        card ??= attachmentFromToolCall(part, templates); // one form card per answer
+        // One card per answer.
+        card ??= attachmentFromToolCall(part, templates) ?? actionCardFromToolCall(part, request.timeZone);
       }
     }
 
     if (card) {
       if (!wroteText) yield card.text; // the model only called the tool: explain the card
-      yield { form: card.form };
+      yield { card: card.card };
     } else if (!wroteText) {
       // A tool call that couldn't be used, and no text: say so instead of an empty answer.
-      yield "I couldn't prepare that form from the request. Please say which form and the details again.";
+      yield "I couldn't prepare that from the request. Please say it again with the details.";
     }
   },
 };
