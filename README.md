@@ -51,6 +51,20 @@ documents stay on your own server.
   form (*"Create a visitor log form with name, company, host and purpose"*)
   and the template is drafted for you. Saved forms and templates live in the
   **Forms** tab, where they can be searched, opened, corrected and edited.
+- **Tasks, scheduled reports and reminders (run by n8n)**: say *"Ask Rahim
+  to send the Q3 sales figures by Friday, rahim@company.com"*, *"Every Monday
+  at 8:00 give me a risk scan of the latest board pack"* or *"Remind me
+  tomorrow at 3pm to call the bank"*. A card appears in the chat to check and
+  confirm. n8n's scheduler then does the rest: it emails the assignee, reminds
+  them when the task falls due, writes each report on time (same search and
+  sources as the chat) and delivers reminders.
+- **Notifications**: a bell with an unread count collects finished reports,
+  reminders, tasks that fell due and anything that failed. Reports open beside
+  the chat with clickable sources. Results can also be emailed (optional SMTP).
+- **Tasks tab**: open tasks (soonest due first, overdue in red, whether the
+  assignee was emailed), done tasks, and every schedule with its next run and
+  last result: **Run now**, **Pause / Resume**, **Delete**. It also shows
+  whether the n8n scheduler is running.
 - **Upload digest**: each document gets a three-sentence summary of what it is
   and what needs attention.
 - **Voice input**: the browser's dictation, with OpenAI transcription as a
@@ -79,13 +93,27 @@ Browser ── AG-UI events (SSE) ──► Next.js app ──► OpenAI   answe
    which must cite its sources.
 4. **Stream**: the answer is sent to the browser as AG-UI events; citations are
    resolved to documents so each one opens the right page.
+5. **Automate**: n8n's scheduler workflow runs every minute. It asks the app
+   what is due (scheduled reports, reminders, tasks past their deadline, new
+   tasks to announce), has the app run each one, and sends any email through
+   its SMTP account. Results land under the bell.
 
-The AI work can run in three ways, chosen with `AI_BACKEND` in `.env`:
+```
+n8n · 4. Scheduler (every minute)
+  │  POST /api/internal/automation/due        ← heartbeat; the app queues and hands out due runs
+  │  POST /api/internal/automation/runs/:id/execute   ← the app writes the report / message,
+  │                                                      saves the notification, returns the email
+  │  Send email (SMTP, optional)
+  └  POST /api/internal/automation/runs/:id/delivered ← sent / failed / skipped
+```
+
+The AI work can run in three ways, chosen with `AI_BACKEND` in `.env`
+(the scheduler always runs in n8n, whichever you choose):
 
 | `AI_BACKEND` | What runs the pipeline | Needs |
 |---|---|---|
 | `openai` (default for real use) | The Next.js app calls OpenAI and Qdrant directly | OpenAI API key, Docker |
-| `n8n` | The same pipeline as three n8n workflows you can edit visually | The above, plus n8n |
+| `n8n` | The same pipeline as n8n workflows you can edit visually | The above, plus n8n |
 | `mock` | Keyword matching only, for trying the interface | Postgres only |
 
 Details of every flow, API route and data format are in
@@ -101,7 +129,7 @@ Details of every flow, API route and data format are in
 | Search | Qdrant 1.19 (dense + BM25-style sparse vectors, RRF fusion) |
 | Models | OpenAI: chat, vision, embeddings, transcription |
 | File reading | pdf.js, mammoth, exceljs, jszip |
-| Optional workflows | n8n 2.42 |
+| Workflows and scheduling | n8n 2.42 |
 | Infrastructure | Docker Compose |
 
 ## Getting started
@@ -165,6 +193,11 @@ automatically when the app starts.
 | Fill in a form | Describe it in the chat ("Fill an expense claim: taxi to the airport, 1,200 BDT, yesterday"), check the card, press **Save** |
 | Create a form | Describe it in the chat ("Create a vendor onboarding form with …"), press **Save template** |
 | Find a saved form | **Forms** tab: search, filter by form, open to correct it |
+| Delegate something | "Ask Nadia to review the board deck by Thursday 5pm, nadia@company.com", press **Create task** |
+| Get a regular report | "Every weekday at 7:30 brief me on cash and open risks", press **Schedule** |
+| Be reminded | "Remind me on the 30th at 10:00 to sign the lease", press **Schedule** |
+| See results | The bell (top right); reports open beside the chat with their sources |
+| Manage tasks and schedules | **Tasks** tab: mark done, run now, pause, resume, delete |
 
 ## Configuration
 
@@ -178,11 +211,16 @@ automatically when the app starts.
 | `APP_PASSWORD` | Login password; empty disables login (local only) | empty |
 | `MAX_UPLOAD_MB` | Largest upload | `50` |
 | `QDRANT_URL` | Where the app reaches Qdrant | `http://localhost:6333` |
+| `APP_INTERNAL_URL` | Where n8n reaches the app (callbacks and the scheduler) | `http://host.docker.internal:3100` |
+| `DEFAULT_TIME_ZONE` | Time zone when the browser doesn't send one | `UTC` |
+| `APP_PUBLIC_URL` | Link to the app put in emails | `http://localhost:3100` |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Optional email from n8n (Gmail: `smtp.gmail.com`, 587, an App Password) | empty: notifications in the app only |
 
 The assistant's rules and the instructions for each answer mode are in
 `web/src/lib/ai-backend/openai/prompts.ts`; the rules for forms are in
-`web/src/lib/ai-backend/openai/form-tools.ts`. Forms are filled by the
-`openai` backend.
+`web/src/lib/ai-backend/openai/form-tools.ts`, and for tasks and schedules in
+`web/src/lib/ai-backend/openai/action-tools.ts`. Forms, tasks and schedules
+are proposed by the `openai` backend.
 
 ## Project structure
 
@@ -192,14 +230,17 @@ executive-agent/
 ├── docker-compose.yml        Postgres, Qdrant, n8n (+ optional web container)
 ├── docs/ARCHITECTURE.md      flows, API, events, database
 ├── infra/                    start-up scripts for n8n, Postgres and Qdrant
-├── n8n/workflows/            ingest, chat and delete workflows (AI_BACKEND=n8n)
+├── n8n/workflows/            1–3 ingest, chat, delete (AI_BACKEND=n8n)
+│                             4 scheduler: tasks, reports, reminders, email
 └── web/                      the Next.js app
     ├── drizzle/              database migrations
     └── src/
         ├── app/              pages and API routes
-        ├── components/       chat, library (workspaces, conversations,
-        │                     documents), viewer, ui
-        ├── hooks/            workspaces, conversations, documents, chat, voice
+        ├── components/       chat (answers, cards), library (workspaces,
+        │                     conversations, documents), forms, automation
+        │                     (Tasks tab), notifications (bell), viewer, ui
+        ├── hooks/            workspaces, conversations, documents, chat,
+        │                     forms, tasks and schedules, notifications, voice
         └── lib/
             ├── ai-backend/   openai, n8n and mock backends (one interface)
             ├── extract/      PDF, Word, Excel, PowerPoint readers
@@ -236,6 +277,14 @@ the link it prints. Set `APP_PASSWORD` first.
   change `OPENAI_MODEL*` in `.env` and restart.
 - **Answers say no passages were found**: check `EMBEDDING_DIMENSIONS` matches
   the Qdrant collection, and that the document shows as ready.
+- **Tasks tab says "The n8n scheduler isn't running"**: start it with
+  `docker compose up -d n8n` and check `docker compose logs n8n`. In the n8n
+  editor (http://localhost:5678), workflow **4. Scheduler** must be active.
+  If n8n can't reach the app, check `APP_INTERNAL_URL` and that
+  `N8N_SHARED_SECRET` is the same for both.
+- **Emails don't arrive**: set `SMTP_*` in `.env`, then
+  `docker compose up -d n8n` (the credential is rebuilt on every start). A
+  failed email shows up under the bell with the server's reason.
 - **Port 3100 is in use**: stop the other app, or change the port in
   `web/package.json`.
 
@@ -243,6 +292,8 @@ the link it prints. Set `APP_PASSWORD` first.
 
 - All services listen on `localhost` only.
 - Search is always filtered to the current workspace on the server.
+- The routes n8n calls (`/api/internal/*`) are outside the login and accept
+  only requests carrying `N8N_SHARED_SECRET`; set a long random value.
 - Uploaded originals are stored in `web/storage` and served only to signed-in
   users.
 - Files are read on your own server; only matching passages (and the file
@@ -252,7 +303,7 @@ the link it prints. Set `APP_PASSWORD` first.
 
 ## Roadmap
 
-- **Proactive**: morning brief, pre-meeting briefs from the calendar, contract
-  deadline reminders, "what changed" between versions.
+- **Proactive**: pre-meeting briefs from the calendar, contract deadline
+  reminders found in documents, "what changed" between versions.
 - **Acting on the CEO's behalf**: follow-ups with approval, chasing late
   reports, meeting action items, single sign-on.

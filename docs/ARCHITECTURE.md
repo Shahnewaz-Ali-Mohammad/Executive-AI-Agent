@@ -9,8 +9,9 @@ responsible for, and the exact contracts between them.
 |---|---|---|
 | **Next.js app** | Screens, login, original-file storage, app database, saved conversations, **AG-UI translator** (backend text → AG-UI events) | `web/` |
 | **AI backend** | Reading scans, chunking, embeddings, hybrid search, prompting, answers, digests. Runs inside the app (`AI_BACKEND=openai`, `web/src/lib/ai-backend/openai-backend.ts`) or as n8n workflows (`AI_BACKEND=n8n`, `n8n/workflows/`); both follow the same steps | `web/src/lib/ai-backend/` |
+| **n8n scheduler** | The clock and the postman for tasks, scheduled reports and reminders: every minute it asks the app what is due, has the app run it, and sends emails over SMTP (workflow 4, always in n8n) | `n8n/workflows/04-scheduler.json` |
 | **Qdrant** | Search index: one point per passage, with a dense and a sparse vector | Docker volume `qdrant_data` |
-| **Postgres** | Workspaces, documents, page texts, saved conversations and their messages (DB `executive_agent`); n8n's data (DB `n8n`) | Docker volume `postgres_data` |
+| **Postgres** | Workspaces, documents, page texts, saved conversations and their messages, forms, tasks, schedules, runs and notifications (DB `executive_agent`); n8n's data (DB `n8n`) | Docker volume `postgres_data` |
 | **File readers** | PDF, Word, Excel, PowerPoint and text → per-page text, locally | `web/src/lib/extract/` |
 | **OpenAI** | Answers (`OPENAI_MODEL` / `_DEEP`), reading scans and photos and digests (`OPENAI_MODEL_FAST`), embeddings (`text-embedding-3-large`), voice fallback | OpenAI API |
 
@@ -206,7 +207,18 @@ All routes require login, except those marked public.
 | `GET /api/documents/:id/pages/:n` | Parsed text of one page |
 | `POST /api/chat` | AG-UI endpoint |
 | `POST /api/transcribe` | OpenAI transcription fallback for voice |
+| `GET/POST /api/workspaces/:id/tasks` | Tasks in a workspace / create one (from a chat card) |
+| `PATCH/DELETE /api/tasks/:id` | Mark done / reopen / cancel, delete |
+| `GET/POST /api/workspaces/:id/schedules` | Scheduled reports and reminders / create one |
+| `PATCH/DELETE /api/schedules/:id` | Pause or resume (`{active}`), delete |
+| `POST /api/schedules/:id/run` | Queue an extra run now (n8n picks it up within a minute) |
+| `GET /api/notifications` | Latest notifications (all workspaces), unread count, scheduler health |
+| `GET/DELETE /api/notifications/:id` | Full notification (marks it read) / delete |
+| `POST /api/notifications/read` | Mark some (`{ids}`) or all as read |
 | `POST /api/internal/ingest-callback` | From n8n (public, secret-protected) |
+| `POST /api/internal/automation/due` | From n8n's scheduler, every minute (public, secret-protected) |
+| `POST /api/internal/automation/runs/:id/execute` | From n8n: run one job, get the email to send |
+| `POST /api/internal/automation/runs/:id/delivered` | From n8n: whether the email went out |
 | `GET /api/health` | Health check (public) |
 
 ## 7. Database (Postgres, Drizzle)
@@ -219,10 +231,25 @@ documents       id, workspace_id→, file_name, mime_type, size_bytes, storage_k
 document_pages  id, document_id→, page_number, content          (unique doc+page)
 conversations   id, workspace_id→, title, created_at, updated_at
 chat_messages   id (AG-UI message id), workspace_id→, conversation_id→, role,
-                content, mode, citations(jsonb), form(jsonb: form card), created_at
+                content, mode, citations(jsonb), card(jsonb: form / task / schedule
+                card), created_at
 form_templates  id, name, description, fields(jsonb), created_at, updated_at
 form_submissions id, template_id→ (set null), workspace_id→, conversation_id→,
                 template_name, fields(jsonb copy), values(jsonb), created_at, updated_at
+tasks           id, workspace_id→, conversation_id→, title, details, assignee_name,
+                assignee_email, due_at, time_zone, status(open|done|cancelled),
+                due_notified_at, completed_at, created_at, updated_at
+schedules       id, workspace_id→, conversation_id→, kind(report|reminder), title,
+                prompt, mode, recurrence(jsonb), time_zone, next_run_at,
+                last_run_at, active, notify_email, created_at, updated_at
+automation_runs id, workspace_id→, schedule_id→, task_id→,
+                type(report|reminder|task_due|task_assigned),
+                status(queued|claimed|running|succeeded|failed), scheduled_for,
+                started_at, finished_at, error, notification_id, delivery(jsonb)
+notifications   id, workspace_id→, kind(report|reminder|task_due|error), title,
+                body(markdown), citations(jsonb), mode, task_id→, schedule_id→,
+                run_id, read_at, created_at
+app_settings    key, value(jsonb), updated_at        (the scheduler's heartbeat)
 ```
 
 A workspace holds many conversations. "New conversation" starts a fresh one,
@@ -260,8 +287,8 @@ and demo the interface without any API keys.
   ("Northwind", "EBITDA Q3") as well as concepts. Keyword vectors catch the
   first kind and embeddings catch the second, and RRF merges both.
 - **Settings in `.env`, read via `$env` in n8n.** One file configures
-  everything, and only the OpenAI credential exists inside n8n (recreated from
-  `.env` on every start).
+  everything, and only the OpenAI and SMTP credentials exist inside n8n
+  (recreated from `.env` on every start).
 
 ## Forms
 
@@ -276,7 +303,7 @@ Forms turn something said in the chat into a structured, saved record.
   choices). When the CEO asks to fill a form, the model calls that tool using
   only what was said in the conversation. The result is checked against the
   template (`lib/forms.ts`) and sent to the browser as an AG-UI `CUSTOM`
-  event named `form`, after the answer text.
+  event named `card`, after the answer text.
 - **Follow-ups**: history is loaded from the database and each form card is
   included as a short line (`[Form "Leave request" (not saved yet) — …]`), so
   "the department is Finance" produces an updated card with all values.
@@ -286,3 +313,61 @@ Forms turn something said in the chat into a structured, saved record.
   server. A saved form (`form_submissions`) keeps its own copy of the fields,
   so editing or deleting the template later never changes it. The card's chat
   message is updated so reopening the conversation shows it as saved.
+
+## Tasks, scheduled reports and reminders (n8n scheduler)
+
+The CEO asks in the chat; n8n keeps time and delivers; the app keeps the data
+and does the AI work.
+
+**From the chat.** With every question the OpenAI backend also offers two
+strict-mode tools (`ai-backend/openai/action-tools.ts`):
+
+| Tool | For | Card |
+|---|---|---|
+| `create_task` | "Ask Rahim to send the Q3 numbers by Friday" | title, assignee name and optional email, due date and time, details → **Create task** |
+| `create_schedule` | "Every Monday at 8 give me a risk scan…", "Remind me tomorrow at 3pm…" | kind (report / reminder), prompt, answer mode, recurrence, optional email → **Schedule** |
+
+The browser sends its time zone with every question (`forwardedProps.timeZone`),
+so "tomorrow at 9" and "every weekday at 07:30" mean the CEO's local time.
+Recurrence is `{ frequency: once|daily|weekdays|weekly|monthly, time "HH:MM",
+weekdays[], dayOfMonth, date }`; the next run is computed in that time zone
+with the built-in Intl data (`lib/schedule.ts`), so daylight-saving changes are
+handled and the 31st falls back to a short month's last day. Like forms, cards
+are only proposals: nothing exists until the button is pressed, and a follow-up
+("make it 9 instead") produces an updated card.
+
+**The scheduler** (`n8n/workflows/04-scheduler.json`) runs every minute:
+
+1. `POST /api/internal/automation/due` with `{ emailEnabled }`. In one
+   transaction the app records the heartbeat, marks runs stuck for over 15
+   minutes as failed, queues a run for each active schedule whose
+   `next_run_at` has passed (and moves `next_run_at` on; a schedule missed while
+   n8n was down runs once, not once per missed slot; a one-off is then
+   finished), queues a `task_due` run for each open task past its deadline, and
+   hands out up to 10 queued runs (`task_assigned` runs are queued when a task
+   with an email is created; **Run now** queues one too). Rows are locked with
+   `FOR UPDATE SKIP LOCKED`, so overlapping executions never get the same run.
+2. For each run, one at a time, `POST /runs/:id/execute`. A run moves
+   `claimed → running` exactly once. A report goes through the same search and
+   model as the chat (the schedule's answer mode, no tools, no history) and is
+   saved as a notification with its citations. Reminders and due tasks become
+   notifications too. The reply carries the email to send, already written
+   (`lib/email.ts`: plain text plus simple HTML), or `null`. An AI failure
+   gives `status: "failed"` and an error notification instead of an HTTP error,
+   so the workflow carries on.
+3. If there is an email and `SMTP_HOST` is set, n8n's **Send email** node sends
+   it with the SMTP credential, then `POST /runs/:id/delivered` with
+   `sent | failed | skipped`. A failed email becomes an error notification.
+
+Successful scheduler executions aren't saved in n8n (one a minute would fill
+its database); failed ones are. Every run is recorded in `automation_runs`.
+
+**In the app.** The bell polls `GET /api/notifications` every 30 seconds (and
+when the tab comes back into view). The Tasks tab lists open tasks (soonest due
+first, overdue in red, whether the assignee was emailed), finished tasks, and
+schedules with their next run and last result; it warns when the scheduler
+hasn't checked in for three minutes.
+
+**Delivery** is always in the app; email is optional (`SMTP_HOST`, `SMTP_PORT`,
+`SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` in `.env`). Links in emails use
+`APP_PUBLIC_URL`.
