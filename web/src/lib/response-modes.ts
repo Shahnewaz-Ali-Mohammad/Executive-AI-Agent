@@ -2,8 +2,10 @@
  * Response modes: the different kinds of output the CEO can ask for.
  *
  * The UI shows these as a picker next to the chat box. The selected mode is
- * sent to the backend with every question; the n8n chat workflow turns it
- * into a different system prompt (and, for heavier modes, a stronger model).
+ * sent with every question and saved with the answer. The backend turns it
+ * into different instructions, a different amount of source material and,
+ * for Deep dive and Risk scan, the stronger model
+ * (see lib/ai-backend/openai/prompts.ts).
  *
  * Shared by client and server — keep it free of server-only imports.
  */

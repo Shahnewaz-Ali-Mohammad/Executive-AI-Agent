@@ -10,6 +10,7 @@ import { Fragment, useEffect, useRef, type ReactNode } from "react";
 import type { ChatMessage } from "@/hooks/use-executive-chat";
 import { extractCitations, type CitableDocument, type Citation } from "@/lib/citations";
 import { formatDateTime, formatDayLabel, formatFullDateTime, isSameDay } from "@/lib/dates";
+import { getResponseMode, type ResponseModeId } from "@/lib/response-modes";
 import { cn } from "@/lib/utils";
 import { AnswerMarkdown } from "./answer-markdown";
 import { CitationTab } from "./citation-tab";
@@ -84,7 +85,8 @@ export function MessageList({
                 <>
                   {renderForm?.(message.id)}
                   <SourceList citations={messageCitations} onOpenCitation={onOpenCitation} />
-                  <div className="mt-2">
+                  <div className="mt-2 flex items-center gap-2">
+                    {message.mode && <ModeTag mode={message.mode} />}
                     <Timestamp iso={message.createdAt} />
                   </div>
                 </>
@@ -102,6 +104,16 @@ export function MessageList({
       )}
       <div ref={endRef} />
     </div>
+  );
+}
+
+/** Which answer mode wrote this answer, e.g. "Risk scan". */
+function ModeTag({ mode }: { mode: ResponseModeId }) {
+  const { label, description } = getResponseMode(mode);
+  return (
+    <span title={description} className="rounded-full border border-rule px-2 py-0.5 text-[0.7rem] text-slate">
+      {label}
+    </span>
   );
 }
 

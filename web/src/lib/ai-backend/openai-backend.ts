@@ -150,6 +150,35 @@ function buildPrompt(request: AnswerRequest, hits: Awaited<ReturnType<typeof hyb
     .join("\n\n=====\n\n");
 }
 
+/**
+ * Pick `limit` passages from a longer, best-first list without letting one
+ * document crowd out the others: best matches first, but no document gets
+ * more than half the places. A comparison or a contradiction check then sees
+ * every side, while files that barely match aren't pulled in for the sake of it.
+ */
+function spreadAcrossDocuments(hits: Awaited<ReturnType<typeof hybridSearch>>, limit: number) {
+  const capPerDocument = Math.ceil(limit / 2);
+  const perDocument = new Map<string, number>();
+  const picked: typeof hits = [];
+  const skipped: typeof hits = [];
+  for (const hit of hits) {
+    if (picked.length >= limit) break;
+    const count = perDocument.get(hit.document_id) ?? 0;
+    if (count < capPerDocument) {
+      picked.push(hit);
+      perDocument.set(hit.document_id, count + 1);
+    } else {
+      skipped.push(hit);
+    }
+  }
+  // Only one or two documents match at all: use the rest of their passages.
+  for (const hit of skipped) {
+    if (picked.length >= limit) break;
+    picked.push(hit);
+  }
+  return picked;
+}
+
 export const openaiBackend: AiBackend = {
   async startIngestion(request) {
     // Runs after the upload response is sent; any failure is recorded on the document.
@@ -182,8 +211,9 @@ export const openaiBackend: AiBackend = {
         workspaceId: request.workspaceId,
         dense,
         keywords: keywordVector(request.question),
-        limit: mode.deep ? 12 : 8,
+        limit: mode.spreadAcrossDocuments ? mode.passages * 3 : mode.passages,
       });
+      hits = mode.spreadAcrossDocuments ? spreadAcrossDocuments(hits, mode.passages) : hits;
     }
 
     const templates = request.formTemplates;

@@ -38,6 +38,8 @@ export interface ChatMessage {
   content: string;
   /** When it was sent (ISO). Saved messages use the database time. */
   createdAt: string;
+  /** The answer mode it was asked or answered in (Brief, Deep dive …). */
+  mode: ResponseModeId | null;
 }
 
 /** Human labels for the AG-UI STEP events the server emits. */
@@ -46,15 +48,25 @@ const STEP_LABELS: Record<string, string> = {
 };
 
 /**
- * Keep only plain user/assistant text messages for display, with their time.
- * AG-UI messages carry no timestamp, so `times` remembers when each id was
- * first seen (or its saved time); new ids are stamped "now".
+ * Keep only plain user/assistant text messages for display, with their time
+ * and mode. AG-UI messages carry neither, so `times` remembers when each id
+ * was first seen (or its saved time; new ids are stamped "now"), and `modes`
+ * holds each question's mode; an answer takes the mode of its question.
  */
-function toChatMessages(messages: readonly Message[], times: Map<string, string>): ChatMessage[] {
+function toChatMessages(
+  messages: readonly Message[],
+  times: Map<string, string>,
+  modes: Map<string, ResponseModeId | null>,
+): ChatMessage[] {
+  let questionMode: ResponseModeId | null = null;
   return messages.flatMap((message) => {
     if ((message.role !== "user" && message.role !== "assistant") || typeof message.content !== "string") return [];
     if (!times.has(message.id)) times.set(message.id, new Date().toISOString());
-    return [{ id: message.id, role: message.role, content: message.content, createdAt: times.get(message.id)! }];
+    const mode = modes.get(message.id) ?? (message.role === "assistant" ? questionMode : null);
+    if (message.role === "user") questionMode = mode;
+    return [
+      { id: message.id, role: message.role, content: message.content, createdAt: times.get(message.id)!, mode },
+    ];
   });
 }
 
@@ -76,6 +88,7 @@ interface UseExecutiveChatOptions {
 export function useExecutiveChat({ workspaceId, session, ensureConversation, onAnswered }: UseExecutiveChatOptions) {
   const agentRef = useRef<HttpAgent | null>(null);
   const timesRef = useRef(new Map<string, string>());
+  const modesRef = useRef(new Map<string, ResponseModeId | null>());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [citations, setCitations] = useState<Record<string, Citation[]>>({});
   const [forms, setForms] = useState<Record<string, FormAttachment>>({});
@@ -92,9 +105,10 @@ export function useExecutiveChat({ workspaceId, session, ensureConversation, onA
     let cancelled = false;
     const agent = new HttpAgent({ url: "/api/chat", threadId: loadId ?? crypto.randomUUID() });
     const times = timesRef.current;
+    const modes = modesRef.current;
 
     const subscriber: AgentSubscriber = {
-      onMessagesChanged: ({ messages }) => setMessages(toChatMessages(messages, times)),
+      onMessagesChanged: ({ messages }) => setMessages(toChatMessages(messages, times, modes)),
       onStepStartedEvent: ({ event }) => setActivity(STEP_LABELS[event.stepName] ?? "Working…"),
       onStepFinishedEvent: () => setActivity(null),
       onCustomEvent: ({ event }) => {
@@ -118,9 +132,12 @@ export function useExecutiveChat({ workspaceId, session, ensureConversation, onA
         .listMessages(loadId)
         .then((history) => {
           if (cancelled) return;
-          for (const message of history) times.set(message.id, message.createdAt);
+          for (const message of history) {
+            times.set(message.id, message.createdAt);
+            modes.set(message.id, message.mode);
+          }
           agent.setMessages(fromHistory(history));
-          setMessages(toChatMessages(agent.messages, times));
+          setMessages(toChatMessages(agent.messages, times, modes));
           setCitations(Object.fromEntries(history.map((m) => [m.id, m.citations])));
           setForms(Object.fromEntries(history.flatMap((m) => (m.form ? [[m.id, m.form]] : []))));
         })
@@ -144,8 +161,10 @@ export function useExecutiveChat({ workspaceId, session, ensureConversation, onA
 
       setError(null);
       setIsRunning(true);
-      agent.addMessage({ id: crypto.randomUUID(), role: "user", content: question });
-      setMessages(toChatMessages(agent.messages, timesRef.current));
+      const questionId = crypto.randomUUID();
+      modesRef.current.set(questionId, mode);
+      agent.addMessage({ id: questionId, role: "user", content: question });
+      setMessages(toChatMessages(agent.messages, timesRef.current, modesRef.current));
 
       try {
         const conversationId = await ensureConversation();
