@@ -4,6 +4,7 @@
 #    postgres     app data (workspaces, documents, chat) + n8n's own database
 #    qdrant       vector search index for document passages
 #    qdrant-init  one-off: creates the search collection
+#    n8n-db-init  one-off: creates n8n's database if it's missing
 #    n8n          the AI engine and scheduler: ingestion, search, answers, scheduled
 #                 reports, reminders and task emails (imports new workflows on start)
 #    web          the Next.js app (optional here: profile "app"; for development
@@ -64,12 +65,36 @@ services:
     entrypoint: ["/bin/sh", "/setup.sh"]
     restart: "no"
 
+  # One-off: makes sure n8n's own database exists. (The Postgres init script
+  # only runs when the data volume is first created, so an older volume may
+  # not have it.) Safe to run on every start.
+  n8n-db-init:
+    image: postgres:17-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-exec}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-exec-local-password}
+      PGDATABASE: ${POSTGRES_DB:-executive_agent}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        psql -tAc "SELECT 1 FROM pg_database WHERE datname = 'n8n'" | grep -q 1
+        && echo "n8n database exists"
+        || psql -v ON_ERROR_STOP=1 -c "CREATE DATABASE n8n"
+    restart: "no"
+
   n8n:
     image: docker.n8n.io/n8nio/n8n:2.42.4
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
+      n8n-db-init:
+        condition: service_completed_successfully
       qdrant-init:
         condition: service_completed_successfully
     # Imports credentials + workflows on first start, then starts n8n.
