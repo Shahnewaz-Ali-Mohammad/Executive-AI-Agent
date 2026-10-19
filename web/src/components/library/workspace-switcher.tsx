@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * Workspace picker at the top of the sidebar: the open workspace's name, and
+ * Workspace picker at the top of the menu: the open workspace's name, and
  * a dropdown to switch, create, rename or delete workspaces. A dropdown (not
- * a list) so the sidebar stays the same height however many workspaces exist.
+ * a list) so the menu stays the same height however many workspaces exist.
  */
 import { Check, ChevronsUpDown, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -51,10 +51,8 @@ export function WorkspaceSwitcher({ workspaces, activeId, onSelect, onCreate, on
   }
 
   async function handleDelete(workspace: WorkspaceDTO) {
-    const confirmed = window.confirm(
-      `Delete "${workspace.name}"? Its documents and conversations will be permanently removed.`,
-    );
-    if (confirmed) await onDelete(workspace.id);
+    close();
+    await onDelete(workspace.id); // asks for confirmation
   }
 
   return (

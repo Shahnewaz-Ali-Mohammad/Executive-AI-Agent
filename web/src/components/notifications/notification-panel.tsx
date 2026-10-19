@@ -30,7 +30,8 @@ interface NotificationPanelProps {
   workspaceId: string;
   documents: CitableDocument[];
   onOpenCitation: (documentId: string, page: number) => void;
-  onSwitchWorkspace: (workspaceId: string) => void;
+  /** Open it inside its own workspace (so its sources can be opened). */
+  onOpenElsewhere: (workspaceId: string) => void;
   onOpenTasks: () => void;
   /** Called once it has been opened (and so marked read). */
   onOpened: () => void;
@@ -43,7 +44,7 @@ export function NotificationPanel({
   workspaceId,
   documents,
   onOpenCitation,
-  onSwitchWorkspace,
+  onOpenElsewhere,
   onOpenTasks,
   onOpened,
   onDelete,
@@ -129,9 +130,9 @@ export function NotificationPanel({
     >
       {elsewhere && (
         <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md bg-paper px-3 py-2 text-xs text-slate">
-          <span className="flex-1">From the “{notification.workspaceName}” workspace. Switch to it to open the sources.</span>
-          <Button variant="quiet" className="px-2.5 py-1 text-xs" onClick={() => onSwitchWorkspace(notification.workspaceId)}>
-            Switch
+          <span className="flex-1">From the “{notification.workspaceName}” workspace. Open it there to view the sources.</span>
+          <Button variant="quiet" className="px-2.5 py-1 text-xs" onClick={() => onOpenElsewhere(notification.workspaceId)}>
+            Open in {notification.workspaceName}
           </Button>
         </div>
       )}

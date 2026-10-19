@@ -75,3 +75,15 @@ export function formatRecencyGroup(iso: string): string {
   if (date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth()) return "Earlier this month";
   return date.toLocaleDateString(LOCALE, { month: "long", year: "numeric" });
 }
+
+/** A date written as "YYYY-MM-DD" (no time zone) → "Fri 16 Oct 2026". */
+export function formatCalendarDate(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString(LOCALE, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}

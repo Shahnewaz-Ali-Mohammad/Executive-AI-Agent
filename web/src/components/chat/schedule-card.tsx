@@ -8,13 +8,12 @@
  */
 import { BellRing, CalendarClock, ExternalLink } from "lucide-react";
 import { useState } from "react";
-import { RecurrenceEditor } from "@/components/automation/recurrence-editor";
+import { ScheduleFields } from "@/components/automation/fields";
 import { Button } from "@/components/ui/button";
-import { Field, INPUT_CLASS } from "@/components/ui/field";
 import { api } from "@/lib/api-client";
 import type { ScheduleCard as ScheduleCardData } from "@/lib/cards";
 import { formatDateTime } from "@/lib/dates";
-import { getResponseMode, RESPONSE_MODES, type ResponseModeId } from "@/lib/response-modes";
+import { getResponseMode } from "@/lib/response-modes";
 import { describeRecurrence } from "@/lib/schedule";
 import { CardFrame, DraftBadge, SavedBadge } from "./card-frame";
 
@@ -43,9 +42,6 @@ export function ScheduleCard({
   const created = Boolean(card.scheduleId);
   const isReport = draft.scheduleKind === "report";
   const Icon = isReport ? CalendarClock : BellRing;
-  const id = (name: string) => `schedule-${messageId}-${name}`;
-  const set = <K extends keyof ScheduleCardData>(key: K, value: ScheduleCardData[K]) =>
-    setDraft((current) => ({ ...current, [key]: value }));
 
   async function create() {
     setSaving(true);
@@ -113,50 +109,12 @@ export function ScheduleCard({
       title={isReport ? "New scheduled report" : "New reminder"}
       status={<DraftBadge label="Not scheduled" />}
     >
-      <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
-        <Field id={id("title")} label="Name" wide>
-          <input id={id("title")} className={INPUT_CLASS} value={draft.title} onChange={(e) => set("title", e.target.value)} disabled={saving} />
-        </Field>
-        <Field id={id("prompt")} label={isReport ? "What the report should answer" : "Message"} wide>
-          <textarea
-            id={id("prompt")}
-            rows={3}
-            className={`${INPUT_CLASS} resize-y`}
-            value={draft.prompt}
-            onChange={(e) => set("prompt", e.target.value)}
-            disabled={saving}
-          />
-        </Field>
-        <RecurrenceEditor idPrefix={id("when")} value={draft.recurrence} onChange={(r) => set("recurrence", r)} disabled={saving} />
-        {isReport && (
-          <Field id={id("mode")} label="Style">
-            <select
-              id={id("mode")}
-              className={INPUT_CLASS}
-              value={draft.mode ?? "brief"}
-              onChange={(e) => set("mode", e.target.value as ResponseModeId)}
-              disabled={saving}
-            >
-              {RESPONSE_MODES.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </Field>
-        )}
-        <Field id={id("email")} label="Also email to" hint="optional">
-          <input
-            id={id("email")}
-            type="email"
-            className={INPUT_CLASS}
-            value={draft.notifyEmail ?? ""}
-            placeholder="you@company.com"
-            onChange={(e) => set("notifyEmail", e.target.value || null)}
-            disabled={saving}
-          />
-        </Field>
-      </div>
+      <ScheduleFields
+        idPrefix={`schedule-${messageId}`}
+        value={draft}
+        onChange={(value) => setDraft((current) => ({ ...current, ...value }))}
+        disabled={saving}
+      />
       <p className="text-xs text-slate">
         {describeRecurrence(draft.recurrence)}, {draft.timeZone}. Results appear under the bell
         {draft.notifyEmail ? " and by email" : ""}.

@@ -363,7 +363,7 @@ Successful scheduler executions aren't saved in n8n (one a minute would fill
 its database); failed ones are. Every run is recorded in `automation_runs`.
 
 **In the app.** The bell polls `GET /api/notifications` every 30 seconds (and
-when the tab comes back into view). The Tasks tab lists open tasks (soonest due
+when the tab comes back into view). The Tasks & schedules page lists open tasks (soonest due
 first, overdue in red, whether the assignee was emailed), finished tasks, and
 schedules with their next run and last result; it warns when the scheduler
 hasn't checked in for three minutes.
@@ -371,3 +371,36 @@ hasn't checked in for three minutes.
 **Delivery** is always in the app; email is optional (`SMTP_HOST`, `SMTP_PORT`,
 `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` in `.env`). Links in emails use
 `APP_PUBLIC_URL`.
+
+## Screens and navigation
+
+Every screen has its own address, so Back, Forward, reload and links work
+(`web/src/lib/routes.ts`):
+
+| Address | Screen |
+|---|---|
+| `/` | Opens the workspace and conversation used last |
+| `/w/:workspaceId` | A new conversation |
+| `/w/:workspaceId/c/:conversationId` | A saved conversation |
+| `/w/:workspaceId/documents` | Documents |
+| `/w/:workspaceId/forms` | Saved forms and templates |
+| `/w/:workspaceId/tasks` | Tasks, scheduled reports and reminders |
+| `/w/:workspaceId/notifications` | Everything under the bell |
+| `/w/:workspaceId/status` | System status (`GET /api/system/status`) |
+
+The right-hand panel is a query parameter on any of them: `?doc=ID&page=N`
+(source viewer), `?form=ID` (saved form), `?template=ID|new`,
+`?notification=ID`, `?new=task|schedule`. Opening a panel adds a history entry
+(Back closes it); paging through a document replaces it. Emails link to
+`/w/:workspaceId/notifications?notification=ID`.
+
+All workspace pages share one client shell (`app/w/[workspaceId]/layout.tsx`
+→ `components/shell/workspace-shell.tsx`): menu, top bar with the bell,
+phone tab bar, right panel, and the workspace's data (documents,
+conversations, forms, tasks, notifications) loaded once and kept while moving
+between pages. The chat stays mounted (hidden on other pages), so an answer
+keeps streaming while another page is open. A new conversation gets its
+address (`/c/:id`) as soon as it is saved, without reloading. Switching
+workspace changes the address and starts the shell fresh, so two workspaces'
+data never mix. Deletions ask for confirmation in a dialog; results are
+confirmed with a short message at the bottom of the screen.

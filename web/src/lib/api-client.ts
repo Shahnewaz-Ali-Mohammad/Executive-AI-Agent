@@ -10,6 +10,7 @@ import type {
   NotificationDetailDTO,
   NotificationFeedDTO,
   ScheduleDTO,
+  SystemStatusDTO,
   TaskDTO,
   ConversationDTO,
   DocumentDTO,
@@ -105,10 +106,14 @@ export const api = {
   deleteSchedule: (id: string) => request<void>(`/api/schedules/${id}`, { method: "DELETE" }),
 
   // Notifications
-  notifications: () => request<NotificationFeedDTO>("/api/notifications", { cache: "no-store" }),
+  notifications: (limit = 30) =>
+    request<NotificationFeedDTO>(`/api/notifications?limit=${limit}`, { cache: "no-store" }),
   openNotification: (id: string) => request<NotificationDetailDTO>(`/api/notifications/${id}`),
   markNotificationsRead: (ids?: string[]) => request<void>("/api/notifications/read", json("POST", ids ? { ids } : {})),
   deleteNotification: (id: string) => request<void>(`/api/notifications/${id}`, { method: "DELETE" }),
+
+  // System
+  systemStatus: () => request<SystemStatusDTO>("/api/system/status", { cache: "no-store" }),
 
   // Voice
   transcribe: (audio: Blob) => {

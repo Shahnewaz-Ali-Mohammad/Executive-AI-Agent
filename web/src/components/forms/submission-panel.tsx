@@ -1,6 +1,6 @@
 "use client";
 
-/** A saved form, opened from the Forms tab: view and correct its values, or delete it. */
+/** A saved form, opened from the Forms page: view and correct its values, or delete it. */
 import { MessageSquare, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -50,13 +50,10 @@ export function SubmissionPanel({ submission, onSave, onDelete, onClose, onOpenC
   }
 
   async function remove() {
-    if (!window.confirm(`Delete this saved "${submission.templateName}"? This can't be undone.`)) return;
-    setBusy(true);
     try {
-      await onDelete();
+      await onDelete(); // asks for confirmation
     } catch (err) {
       setProblem(err instanceof Error ? err.message : "Could not delete.");
-      setBusy(false);
     }
   }
 

@@ -103,8 +103,19 @@ export function markdownToHtml(markdown: string): string {
 }
 
 /** A complete email in the app's style, with a link back to the app. */
-export function buildEmail(input: { to: string; subject: string; heading: string; markdown: string; footer?: string }): EmailMessage {
-  const link = env.APP_PUBLIC_URL;
+export function buildEmail(input: {
+  to: string;
+  subject: string;
+  heading: string;
+  markdown: string;
+  footer?: string;
+  /** Page in the app to link to (e.g. the notification), or null for no link (emails to other people). */
+  path?: string | null;
+}): EmailMessage {
+  const link = input.path === null ? null : `${env.APP_PUBLIC_URL.replace(/\/$/, "")}${input.path ?? "/"}`;
+  const footerHtml = [input.footer ? escapeHtml(input.footer) : "", link ? `<a href="${escapeHtml(link)}" style="color:#8a6d3b">Open in Executive Agent</a>` : ""]
+    .filter(Boolean)
+    .join(" · ");
   const html = `<!doctype html><html><body style="margin:0;background:#f6f4ef;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1f1d1a">
 <div style="max-width:640px;margin:0 auto;padding:24px 16px">
   <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#8a8478;margin-bottom:8px">Executive Agent</div>
@@ -112,8 +123,8 @@ export function buildEmail(input: { to: string; subject: string; heading: string
     <h1 style="font-size:20px;margin:0 0 16px">${escapeHtml(input.heading)}</h1>
     ${markdownToHtml(input.markdown)}
   </div>
-  <div style="font-size:12px;color:#8a8478;margin-top:12px">${input.footer ? `${escapeHtml(input.footer)} · ` : ""}<a href="${escapeHtml(link)}" style="color:#8a6d3b">Open Executive Agent</a></div>
+  ${footerHtml ? `<div style="font-size:12px;color:#8a8478;margin-top:12px">${footerHtml}</div>` : ""}
 </div></body></html>`;
-  const text = `${input.heading}\n\n${input.markdown}\n\n${input.footer ? `${input.footer}\n` : ""}Open Executive Agent: ${link}\n`;
+  const text = `${input.heading}\n\n${input.markdown}\n\n${input.footer ? `${input.footer}\n` : ""}${link ? `Open in Executive Agent: ${link}\n` : ""}`;
   return { to: input.to, subject: input.subject, text, html };
 }

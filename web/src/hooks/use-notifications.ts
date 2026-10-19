@@ -5,7 +5,7 @@
  *
  * Polls every 30 seconds while the page is visible, and right away when the
  * tab comes back into view. `onNew` fires when new notifications arrive, so
- * the Tasks tab can refresh its "last run" details.
+ * the Tasks page can refresh its "last run" details.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api-client";

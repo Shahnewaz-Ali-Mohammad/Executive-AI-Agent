@@ -106,6 +106,8 @@ export interface LastRunDTO {
   status: "queued" | "claimed" | "running" | "succeeded" | "failed";
   at: string;
   error: string | null;
+  /** The notification it produced (the report, or why it failed). */
+  notificationId: string | null;
 }
 
 export interface ScheduleDTO {
@@ -156,6 +158,20 @@ export interface SchedulerStatusDTO {
   healthy: boolean;
   /** n8n has SMTP set up, so results can also be emailed. */
   emailEnabled: boolean;
+}
+
+export interface SystemCheck {
+  id: string;
+  label: string;
+  state: "ok" | "warning" | "error" | "off";
+  detail: string;
+  /** What to do about it. */
+  fix?: string;
+}
+
+export interface SystemStatusDTO {
+  checkedAt: string;
+  checks: SystemCheck[];
 }
 
 export interface NotificationFeedDTO {

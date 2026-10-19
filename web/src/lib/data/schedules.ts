@@ -43,6 +43,7 @@ async function lastRuns(scheduleIds: string[]): Promise<Map<string, LastRunDTO>>
       startedAt: automationRuns.startedAt,
       finishedAt: automationRuns.finishedAt,
       error: automationRuns.error,
+      notificationId: automationRuns.notificationId,
     })
     .from(automationRuns)
     .where(inArray(automationRuns.scheduleId, scheduleIds))
@@ -54,6 +55,7 @@ async function lastRuns(scheduleIds: string[]): Promise<Map<string, LastRunDTO>>
         status: r.status as LastRunDTO["status"],
         at: (r.finishedAt ?? r.startedAt).toISOString(),
         error: r.error,
+        notificationId: r.notificationId,
       },
     ]),
   );

@@ -3,36 +3,22 @@
 /**
  * The saved conversations of the open workspace, and which one is on screen.
  *
+ * The address decides which conversation is open (/w/:id/c/:conversationId,
+ * or /w/:id for a new one) while the chat page is showing.
+ *
  * Two ids matter:
  *   - `activeId`  the conversation new messages are saved to. `null` means a
  *                 fresh chat that isn't saved yet; it's created on the first
  *                 question (so "New conversation" never leaves empty entries).
- *   - `session`   changes only when the CEO opens a different conversation or
- *                 starts a new one. The chat reloads when it changes, but NOT
- *                 when a fresh chat gets its id mid-answer.
+ *   - `session`   changes only when a different conversation is opened or a
+ *                 new one started. The chat reloads when it changes, but NOT
+ *                 when a fresh chat gets its id mid-answer (the address then
+ *                 catches up with the new conversation without reloading).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api-client";
+import { lastVisited } from "@/lib/routes";
 import type { ConversationDTO } from "@/lib/types";
-
-const lastConversationKey = (workspaceId: string) => `ea:last-conversation:${workspaceId}`;
-
-function readLast(workspaceId: string): string | null {
-  try {
-    return window.localStorage.getItem(lastConversationKey(workspaceId));
-  } catch {
-    return null; // storage can be blocked (private mode); not important
-  }
-}
-
-function writeLast(workspaceId: string, id: string | null) {
-  try {
-    if (id) window.localStorage.setItem(lastConversationKey(workspaceId), id);
-    else window.localStorage.removeItem(lastConversationKey(workspaceId));
-  } catch {
-    // ignore
-  }
-}
 
 export interface ChatSession {
   /** Changes whenever a different conversation is opened (reload trigger). */
@@ -41,51 +27,69 @@ export interface ChatSession {
   conversationId: string | null;
 }
 
-export function useConversations(workspaceId: string) {
+interface Options {
+  /** The conversation in the address (null = a new one). */
+  addressConversationId: string | null;
+  /** Only follow the address while the chat page is showing. */
+  followAddress: boolean;
+  /** Called when a fresh chat has just been saved, so the address can follow. */
+  onCreated: (conversationId: string) => void;
+}
+
+export function useConversations(workspaceId: string, { addressConversationId, followAddress, onCreated }: Options) {
   const [conversations, setConversations] = useState<ConversationDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [session, setSession] = useState<ChatSession | null>(null);
-  const freshCounter = useRef(0);
+  // The address last followed, and a counter that makes each fresh chat unique.
+  const [followed, setFollowed] = useState<{ address: string | null; fresh: number } | null>(null);
+
+  // Follow the address (adjusting state while rendering, as React recommends
+  // for state derived from props, instead of an extra effect pass).
+  if (followAddress && (followed === null || followed.address !== addressConversationId)) {
+    const fresh = (followed?.fresh ?? 0) + 1;
+    setFollowed({ address: addressConversationId, fresh });
+    // Already on screen (e.g. the address just caught up with a new chat): keep it.
+    if (session === null || addressConversationId !== activeId) {
+      setActiveId(addressConversationId);
+      setSession({ key: addressConversationId ?? `fresh-${fresh}`, conversationId: addressConversationId });
+    }
+  }
+
+  // Latest values for callbacks.
+  const activeRef = useRef(activeId);
+  const onCreatedRef = useRef(onCreated);
   // The id being created for a fresh chat, so two quick questions don't create two.
   const creating = useRef<Promise<string> | null>(null);
+  useEffect(() => {
+    activeRef.current = activeId;
+    if (!activeId) creating.current = null;
+    lastVisited.setConversation(workspaceId, activeId);
+  }, [activeId, workspaceId]);
+  useEffect(() => {
+    onCreatedRef.current = onCreated;
+  }, [onCreated]);
 
-  const openSession = useCallback(
-    (conversationId: string | null) => {
-      setActiveId(conversationId);
-      writeLast(workspaceId, conversationId);
-      creating.current = null;
-      setSession({
-        key: conversationId ?? `fresh-${++freshCounter.current}`,
-        conversationId,
-      });
-    },
-    [workspaceId],
-  );
-
-  // Load the list, then reopen the last conversation (or the newest one).
   useEffect(() => {
     let cancelled = false;
     api
       .listConversations(workspaceId)
-      .then((list) => {
-        if (cancelled) return;
-        setConversations(list);
-        const last = readLast(workspaceId);
-        const start = list.find((c) => c.id === last) ?? list[0] ?? null;
-        openSession(start?.id ?? null);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Could not load conversations.");
-        openSession(null);
-      })
+      .then((list) => !cancelled && setConversations(list))
+      .catch((err) => !cancelled && setError(err instanceof Error ? err.message : "Could not load conversations."))
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
     };
-  }, [workspaceId, openSession]);
+  }, [workspaceId]);
+
+  /** Clear the screen for a new conversation, even if a new one is already showing. */
+  const startFresh = useCallback(() => {
+    const fresh = (followed?.fresh ?? 0) + 1;
+    setFollowed({ address: followed?.address ?? null, fresh });
+    setSession({ key: `fresh-${fresh}`, conversationId: null });
+    setActiveId(null);
+  }, [followed]);
 
   /** Reload the list (titles and order change as questions are asked). */
   const refresh = useCallback(async () => {
@@ -98,11 +102,12 @@ export function useConversations(workspaceId: string) {
    * question of a fresh chat, without reloading the chat on screen.
    */
   const ensureConversation = useCallback(async (): Promise<string> => {
-    if (activeId) return activeId;
+    if (activeRef.current) return activeRef.current;
     creating.current ??= api.createConversation(workspaceId).then((conversation) => {
       setConversations((list) => [conversation, ...list]);
+      activeRef.current = conversation.id;
       setActiveId(conversation.id);
-      writeLast(workspaceId, conversation.id);
+      onCreatedRef.current(conversation.id);
       return conversation.id;
     });
     try {
@@ -111,7 +116,7 @@ export function useConversations(workspaceId: string) {
       creating.current = null;
       throw err;
     }
-  }, [activeId, workspaceId]);
+  }, [workspaceId]);
 
   const rename = useCallback(async (id: string, title: string) => {
     const updated = await api.renameConversation(id, title);
@@ -119,14 +124,10 @@ export function useConversations(workspaceId: string) {
     setConversations((list) => list.map((c) => (c.id === id ? { ...c, title: updated.title } : c)));
   }, []);
 
-  const remove = useCallback(
-    async (id: string) => {
-      await api.deleteConversation(id);
-      setConversations((list) => list.filter((c) => c.id !== id));
-      if (id === activeId) openSession(null); // deleted the one on screen: start fresh
-    },
-    [activeId, openSession],
-  );
+  const remove = useCallback(async (id: string) => {
+    await api.deleteConversation(id);
+    setConversations((list) => list.filter((c) => c.id !== id));
+  }, []);
 
   return {
     conversations,
@@ -134,8 +135,7 @@ export function useConversations(workspaceId: string) {
     error,
     activeId,
     session,
-    open: (id: string) => openSession(id),
-    startNew: () => openSession(null),
+    startFresh,
     ensureConversation,
     refresh,
     rename,

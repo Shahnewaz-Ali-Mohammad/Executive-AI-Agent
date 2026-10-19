@@ -35,7 +35,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   }
   const loginUrl = new URL("/login", request.url);
-  if (pathname !== "/") loginUrl.searchParams.set("next", pathname);
+  if (pathname !== "/") loginUrl.searchParams.set("next", `${pathname}${request.nextUrl.search}`);
   return NextResponse.redirect(loginUrl);
 }
 

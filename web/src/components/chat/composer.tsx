@@ -5,7 +5,7 @@
  * Enter sends; Shift+Enter adds a new line.
  */
 import { ArrowUp, Mic, Paperclip, Square } from "lucide-react";
-import { useCallback, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { IconButton } from "@/components/ui/button";
 import { useVoiceInput } from "@/hooks/use-voice-input";
 import { getResponseMode, RESPONSE_MODES, type ResponseModeId } from "@/lib/response-modes";
@@ -19,10 +19,30 @@ interface ComposerProps {
   onAttach: () => void;
   isRunning: boolean;
   disabled?: boolean;
+  /** Text to start with (e.g. "Fill a leave request for "); the box is focused. */
+  initialText?: string;
 }
 
-export function Composer({ mode, onModeChange, onSend, onStop, onAttach, isRunning, disabled = false }: ComposerProps) {
-  const [text, setText] = useState("");
+export function Composer({
+  mode,
+  onModeChange,
+  onSend,
+  onStop,
+  onAttach,
+  isRunning,
+  disabled = false,
+  initialText = "",
+}: ComposerProps) {
+  const [text, setText] = useState(initialText);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Started with text: put the cursor at its end, ready to finish the sentence.
+  useEffect(() => {
+    const box = textareaRef.current;
+    if (!initialText || !box) return;
+    box.focus();
+    box.setSelectionRange(box.value.length, box.value.length);
+  }, [initialText]);
   // Text that was already in the box when dictation started, so speech is appended to it.
   const textBeforeVoice = useRef("");
 
@@ -94,13 +114,14 @@ export function Composer({ mode, onModeChange, onSend, onStop, onAttach, isRunni
           Your question
         </label>
         <textarea
+          ref={textareaRef}
           id="question"
           rows={1}
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={handleKeyDown}
           disabled={disabled}
-          placeholder={listening ? "Listening…" : "Ask about your documents"}
+          placeholder={listening ? "Listening…" : "Ask about your documents, or ask for a form, task or report"}
           className="field-sizing-content block max-h-48 min-h-[3rem] w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-base text-ink outline-none placeholder:text-slate/70"
         />
         <div className="flex items-center gap-1 px-2 pb-2">

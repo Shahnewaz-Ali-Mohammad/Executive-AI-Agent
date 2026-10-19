@@ -3,6 +3,7 @@
  * errors in the same `{ error: "..." }` shape.
  */
 import "server-only";
+import { unstable_rethrow } from "next/navigation";
 import { describeDatabaseError } from "@/lib/db/errors";
 import type { ApiErrorBody } from "@/lib/types";
 
@@ -26,6 +27,8 @@ export function jsonError(message: string, status: number): Response {
  * logged and hidden behind a generic message.
  */
 export function handleRouteError(error: unknown): Response {
+  // Next.js's own control-flow errors (e.g. "this route is dynamic") must pass through.
+  unstable_rethrow(error);
   if (error instanceof HttpError) return jsonError(error.message, error.status);
 
   // Database not running, tables missing, wrong database: say what to do.

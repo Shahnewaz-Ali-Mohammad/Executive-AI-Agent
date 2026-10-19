@@ -120,6 +120,11 @@ async function qdrant<T>(method: "PUT" | "POST", path: string, body: unknown): P
   }
   if (!response.ok) {
     const text = (await response.text().catch(() => "")).slice(0, 300);
+    if (response.status === 404 && /collection/i.test(text)) {
+      throw new Error(
+        `The search index has no "${env.QDRANT_COLLECTION}" collection yet. Create it with \`docker compose up -d qdrant-init\`, then upload the documents again.`,
+      );
+    }
     throw new Error(`Search index error (HTTP ${response.status}): ${text}`);
   }
   return (await response.json()) as T;

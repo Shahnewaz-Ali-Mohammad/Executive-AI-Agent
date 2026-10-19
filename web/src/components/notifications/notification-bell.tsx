@@ -6,6 +6,7 @@
  * from every workspace. Choosing one opens it in the right-hand panel.
  */
 import { AlertTriangle, Bell, BellRing, CalendarClock, ListTodo } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { IconButton } from "@/components/ui/button";
 import { formatDateTime, formatFullDateTime } from "@/lib/dates";
@@ -28,6 +29,8 @@ interface NotificationBellProps {
   activeId: string | null;
   onOpen: (id: string) => void;
   onMarkAllRead: () => void;
+  /** The full Notifications page. */
+  allHref: string;
 }
 
 export function NotificationBell({
@@ -38,6 +41,7 @@ export function NotificationBell({
   activeId,
   onOpen,
   onMarkAllRead,
+  allHref,
 }: NotificationBellProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -93,7 +97,7 @@ export function NotificationBell({
 
           {schedulerDown && (
             <p className="border-b border-rule bg-amber-soft px-4 py-2 text-xs text-amber">
-              The n8n scheduler isn&apos;t running, so nothing new will arrive. See the Tasks tab.
+              The n8n scheduler isn&apos;t running, so nothing new will arrive. See System status.
             </p>
           )}
 
@@ -141,6 +145,13 @@ export function NotificationBell({
               })}
             </ul>
           )}
+          <Link
+            href={allHref}
+            onClick={() => setOpen(false)}
+            className="border-t border-rule px-4 py-2.5 text-center text-xs font-medium text-ledger hover:bg-paper"
+          >
+            View all notifications
+          </Link>
         </div>
       )}
     </div>

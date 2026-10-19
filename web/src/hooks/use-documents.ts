@@ -50,16 +50,19 @@ export function useDocuments(workspaceId: string) {
     return () => window.clearInterval(timer);
   }, [hasProcessing, refresh]);
 
+  /** Upload files; returns how many were added (0 if it failed: see `error`). */
   const upload = useCallback(
-    async (files: File[]) => {
-      if (files.length === 0) return;
+    async (files: File[]): Promise<number> => {
+      if (files.length === 0) return 0;
       setUploading(true);
       setError(null);
       try {
         const created = await api.uploadDocuments(workspaceId, files);
         setDocuments((list) => [...created, ...list]);
+        return created.length;
       } catch (err) {
         setError(err instanceof Error ? err.message : "Upload failed.");
+        return 0;
       } finally {
         setUploading(false);
       }
@@ -67,13 +70,16 @@ export function useDocuments(workspaceId: string) {
     [workspaceId],
   );
 
-  const remove = useCallback(async (id: string) => {
+  /** Delete one; returns whether it worked (if not, see `error`). */
+  const remove = useCallback(async (id: string): Promise<boolean> => {
     setError(null);
     try {
       await api.deleteDocument(id);
       setDocuments((list) => list.filter((doc) => doc.id !== id));
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not delete the document.");
+      return false;
     }
   }, []);
 
@@ -83,6 +89,7 @@ export function useDocuments(workspaceId: string) {
     uploading,
     error,
     clearError: () => setError(null),
+    refresh,
     upload,
     remove,
   };

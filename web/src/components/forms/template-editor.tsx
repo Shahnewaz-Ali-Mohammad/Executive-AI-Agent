@@ -109,16 +109,10 @@ export function TemplateEditor({ template, onSave, onDelete, onClose }: Template
 
   async function remove() {
     if (!onDelete || !template) return;
-    const note = template.submissionCount
-      ? ` The ${template.submissionCount} form(s) already saved with it are kept.`
-      : "";
-    if (!window.confirm(`Delete the "${template.name}" template?${note}`)) return;
-    setBusy(true);
     try {
-      await onDelete();
+      await onDelete(); // asks for confirmation
     } catch (err) {
       setProblem(err instanceof Error ? err.message : "Could not delete.");
-      setBusy(false);
     }
   }
 

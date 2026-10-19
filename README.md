@@ -9,17 +9,17 @@ Built for internal use by a CEO and their office: self-hosted, one login,
 documents stay on your own server.
 
 ```
-┌────────────────┬──────────────────────────────────┬──────────────────────┐
-│ Workspaces     │  "What will the board push       │  Q3_Board_Report.pdf │
-│  Board – Q3    │   back on?"                      │  page 3              │
-│  Project Falcon│                                  │  ┌────────────────┐  │
-│                │  Bottom line: runway is 14       │  │ the cited page │  │
-│ Conversations  │  months [Q3_Board_Report  3] …   │  │ opens here     │  │
-│  Runway check  │                                  │  └────────────────┘  │
-│  Hiring plan   │  Brief · Deep dive · Risk scan … │                      │
-│ Documents      │  ┌────────────────────────────┐  │                      │
-│  + Add         │  │ Ask about your documents   │  │                      │
-└────────────────┴──┴────────────────────────────┴──┴──────────────────────┘
+┌──────────────────┬────────────────────────────────┬──────────────────────┐
+│ Board – Q3     ▾ │ Board – Q3 / Runway check   🔔3 │  Q3_Board_Report.pdf │
+│ + New convers.   ├────────────────────────────────┤  page 3              │
+│ Documents     19 │ "What will the board push      │  ┌────────────────┐  │
+│ Forms          2 │  back on?"                     │  │ the cited page │  │
+│ Tasks & sched. 4 │ Bottom line: runway is 14      │  │ opens here     │  │
+│ Notifications  3 │ months [Q3_Board_Report  3] …  │  └────────────────┘  │
+│ CONVERSATIONS    │ Brief · Deep dive · Risk scan… │                      │
+│  Runway check    │ ┌────────────────────────────┐ │                      │
+│ ● System status  │ │ Ask about your documents   │ │                      │
+└──────────────────┴─┴────────────────────────────┴─┴──────────────────────┘
 ```
 
 ## Features
@@ -41,16 +41,23 @@ documents stay on your own server.
   question.
 - **Dated messages**: every question and answer shows its date and time, with
   a divider when the day changes.
-- **File library**: search, filter by Images / PDFs / Office files, real
-  thumbnails for photos and scans, a picture grid for images, and the upload
-  date and time of every file.
+- **Clear navigation**: a menu with **Documents**, **Forms**, **Tasks &
+  schedules** and **Notifications**, each a full page with its own address.
+  Back and Forward, reloading and links all work, including the panel on
+  the right (a source page, a saved form, a report). On phones: a slide-in
+  menu and a tab bar at the bottom. An answer keeps streaming while you look
+  at another page.
+- **Documents page**: add files (button or drag and drop), search, filter by
+  PDFs / Images / Office files / Not ready, a picture grid for images, status,
+  pages, size, upload time and digest of every file; open, ask about it, or
+  delete.
 - **Forms filled in from the chat**: say *"Fill a leave request for Rahim
   from Finance, sick leave 12–14 October"* and the matching form appears in
   the chat already filled in. Missing required fields are flagged and asked
   for; nothing is stored until you check it and press **Save**. Describe a new
   form (*"Create a visitor log form with name, company, host and purpose"*)
-  and the template is drafted for you. Saved forms and templates live in the
-  **Forms** tab, where they can be searched, opened, corrected and edited.
+  and the template is drafted for you. Saved forms and templates live on the
+  **Forms** page, where they can be searched, opened, corrected and edited.
 - **Tasks, scheduled reports and reminders (run by n8n)**: say *"Ask Rahim
   to send the Q3 sales figures by Friday, rahim@company.com"*, *"Every Monday
   at 8:00 give me a risk scan of the latest board pack"* or *"Remind me
@@ -61,10 +68,15 @@ documents stay on your own server.
 - **Notifications**: a bell with an unread count collects finished reports,
   reminders, tasks that fell due and anything that failed. Reports open beside
   the chat with clickable sources. Results can also be emailed (optional SMTP).
-- **Tasks tab**: open tasks (soonest due first, overdue in red, whether the
-  assignee was emailed), done tasks, and every schedule with its next run and
-  last result: **Run now**, **Pause / Resume**, **Delete**. It also shows
-  whether the n8n scheduler is running.
+- **Tasks & schedules page**: open tasks (soonest due first, overdue in red,
+  whether the assignee was emailed), done tasks, and every schedule with its
+  next run and last result (one click to the report): **Run now**, **Pause /
+  Resume**, **Delete**. **New task** and **New schedule** work without the
+  chat too.
+- **System status page**: database, search index, AI, n8n, the scheduler and
+  email, each with what to do if it isn't working.
+- **Emails link back**: an emailed report or reminder links straight to it in
+  the app.
 - **Upload digest**: each document gets a three-sentence summary of what it is
   and what needs attention.
 - **Voice input**: the browser's dictation, with OpenAI transcription as a
@@ -192,12 +204,13 @@ automatically when the app starts.
 | Start a fresh topic | **New conversation**; earlier ones stay in the list |
 | Fill in a form | Describe it in the chat ("Fill an expense claim: taxi to the airport, 1,200 BDT, yesterday"), check the card, press **Save** |
 | Create a form | Describe it in the chat ("Create a vendor onboarding form with …"), press **Save template** |
-| Find a saved form | **Forms** tab: search, filter by form, open to correct it |
+| Find a saved form | **Forms** page: search, filter by form, open to correct it |
 | Delegate something | "Ask Nadia to review the board deck by Thursday 5pm, nadia@company.com", press **Create task** |
 | Get a regular report | "Every weekday at 7:30 brief me on cash and open risks", press **Schedule** |
 | Be reminded | "Remind me on the 30th at 10:00 to sign the lease", press **Schedule** |
 | See results | The bell (top right); reports open beside the chat with their sources |
-| Manage tasks and schedules | **Tasks** tab: mark done, run now, pause, resume, delete |
+| Manage tasks and schedules | **Tasks & schedules** page: mark done, run now, pause, resume, delete |
+| Check everything works | **System status** (bottom of the menu) |
 
 ## Configuration
 
@@ -235,10 +248,12 @@ executive-agent/
 └── web/                      the Next.js app
     ├── drizzle/              database migrations
     └── src/
-        ├── app/              pages and API routes
-        ├── components/       chat (answers, cards), library (workspaces,
-        │                     conversations, documents), forms, automation
-        │                     (Tasks tab), notifications (bell), viewer, ui
+        ├── app/              routes: / → /w/:workspace (chat), …/c/:conversation,
+        │                     …/documents, …/forms, …/tasks, …/notifications,
+        │                     …/status; and the API
+        ├── components/       shell (menu, top bar, tab bar, right panel),
+        │                     pages, chat (answers, cards), forms, automation,
+        │                     notifications, library, viewer, ui
         ├── hooks/            workspaces, conversations, documents, chat,
         │                     forms, tasks and schedules, notifications, voice
         └── lib/
@@ -277,7 +292,7 @@ the link it prints. Set `APP_PASSWORD` first.
   change `OPENAI_MODEL*` in `.env` and restart.
 - **Answers say no passages were found**: check `EMBEDDING_DIMENSIONS` matches
   the Qdrant collection, and that the document shows as ready.
-- **Tasks tab says "The n8n scheduler isn't running"**: start it with
+- **"The n8n scheduler isn't running"** (Tasks page or System status): start it with
   `docker compose up -d n8n` and check `docker compose logs n8n`. In the n8n
   editor (http://localhost:5678), workflow **4. Scheduler** must be active.
   If n8n can't reach the app, check `APP_INTERNAL_URL` and that

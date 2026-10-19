@@ -39,16 +39,19 @@ export function useAutomations(workspaceId: string) {
     if (scheduleList) setSchedules(scheduleList);
   }, [workspaceId]);
 
-  /** Run an action; on failure show the server's message and reload the lists. */
+  /** Run an action, then reload the lists. Returns whether it worked (if not, see `error`). */
   const act = useCallback(
-    async (action: () => Promise<unknown>) => {
+    async (action: () => Promise<unknown>): Promise<boolean> => {
       setError(null);
+      let ok = true;
       try {
         await action();
       } catch (err) {
+        ok = false;
         setError(err instanceof Error ? err.message : "That didn't work. Please try again.");
       }
       await refresh();
+      return ok;
     },
     [refresh],
   );

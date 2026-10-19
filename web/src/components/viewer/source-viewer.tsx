@@ -29,6 +29,8 @@ const PdfPage = dynamic(() => import("./pdf-page"), {
 
 interface SourceViewerProps {
   document: DocumentDTO | undefined;
+  /** The workspace's documents are still loading (so "not found" isn't known yet). */
+  loading?: boolean;
   page: number;
   onPageChange: (page: number) => void;
   onClose: () => void;
@@ -39,7 +41,7 @@ type PageText = { status: "loading" } | { status: "loaded"; content: string } | 
 /** A page-text result, remembered together with the page it belongs to. */
 type LoadedPageText = { page: number; text: PageText };
 
-export function SourceViewer({ document, page, onPageChange, onClose }: SourceViewerProps) {
+export function SourceViewer({ document, loading = false, page, onPageChange, onClose }: SourceViewerProps) {
   const [pdfPageCount, setPdfPageCount] = useState<number | null>(null);
   const [loaded, setLoaded] = useState<LoadedPageText | null>(null);
 
@@ -61,13 +63,13 @@ export function SourceViewer({ document, page, onPageChange, onClose }: SourceVi
     };
   }, [documentId, page]);
 
-  // Close with Escape.
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
+  if (!document && loading) {
+    return (
+      <ViewerFrame title="Opening…" onClose={onClose}>
+        <p className="p-6 text-sm text-slate">Opening document…</p>
+      </ViewerFrame>
+    );
+  }
   if (!document) {
     return (
       <ViewerFrame title="Source not found" onClose={onClose}>

@@ -1,6 +1,6 @@
-import { ExecutiveApp } from "@/components/executive-app";
+import { HomeRedirect } from "@/components/shell/workspace-shell";
 
-/** The app itself (login is enforced by src/proxy.ts before this renders). */
+/** "/" opens the workspace (and conversation) used last. Login is enforced by src/proxy.ts. */
 export default function HomePage() {
-  return <ExecutiveApp />;
+  return <HomeRedirect />;
 }

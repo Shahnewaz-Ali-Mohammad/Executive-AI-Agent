@@ -1,6 +1,6 @@
 "use client";
 
-/** Small search box for filtering a list in the sidebar. */
+/** Small search box for filtering a list. */
 import { Search, X } from "lucide-react";
 
 interface SearchFieldProps {

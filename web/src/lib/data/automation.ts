@@ -27,6 +27,7 @@ import { extractCitations } from "@/lib/citations";
 import { db, schema } from "@/lib/db";
 import { buildEmail, type EmailMessage } from "@/lib/email";
 import { HttpError, isUuid } from "@/lib/http";
+import { notificationHref } from "@/lib/routes";
 import { DEFAULT_RESPONSE_MODE, getResponseMode, isResponseMode } from "@/lib/response-modes";
 import { nextOccurrence } from "@/lib/schedule";
 import type { SchedulerStatusDTO } from "@/lib/types";
@@ -221,7 +222,7 @@ export async function executeRun(runId: string): Promise<RunOutcome> {
       workspaceId: run.workspaceId,
       kind: "error",
       title: `Couldn't run “${title}”`,
-      body: `The ${run.type.replace("_", " ")} failed: ${message}\n\nIt will run again at its next scheduled time. You can also use **Run now** in the Tasks tab.`,
+      body: `The ${run.type.replace("_", " ")} failed: ${message}\n\nIt will run again at its next scheduled time. You can also use **Run now** on the Tasks page.`,
       scheduleId: run.scheduleId,
       taskId: run.taskId,
       runId: run.id,
@@ -268,7 +269,14 @@ async function perform(run: schema.AutomationRun): Promise<{ title: string; noti
         runId: run.id,
       });
       const email = s.notifyEmail
-        ? buildEmail({ to: s.notifyEmail, subject: `Reminder: ${s.title}`, heading: s.title, markdown: s.prompt, footer: `${workspaceName} · ${when}` })
+        ? buildEmail({
+            to: s.notifyEmail,
+            subject: `Reminder: ${s.title}`,
+            heading: s.title,
+            markdown: s.prompt,
+            footer: `${workspaceName} · ${when}`,
+            path: notificationHref(s.workspaceId, notification.id),
+          })
         : null;
       return { title: s.title, notificationId: notification.id, email };
     }
@@ -311,6 +319,7 @@ async function perform(run: schema.AutomationRun): Promise<{ title: string; noti
           heading: s.title,
           markdown: answer,
           footer: `${workspaceName} · ${getResponseMode(mode).label} · ${when}`,
+          path: notificationHref(s.workspaceId, notification.id),
         })
       : null;
     return { title: s.title, notificationId: notification.id, email };
@@ -336,6 +345,7 @@ async function perform(run: schema.AutomationRun): Promise<{ title: string; noti
           heading: t.title,
           markdown: `${greeting}\n\nYou've been asked to take care of this task.${details}${due ? `\n\n**Due:** ${due}` : ""}`,
           footer: workspaceName,
+          path: null, // the assignee has no access to the app
         }),
       };
     }
@@ -347,7 +357,7 @@ async function perform(run: schema.AutomationRun): Promise<{ title: string; noti
       workspaceId: t.workspaceId,
       kind: "task_due",
       title: `Due now: ${t.title}${who}`,
-      body: `**${t.title}** is due${t.assigneeName ? ` — assigned to ${t.assigneeName}` : ""}.${details}\n\nMark it done in the Tasks tab when it's finished.`,
+      body: `**${t.title}** is due${t.assigneeName ? ` — assigned to ${t.assigneeName}` : ""}.${details}\n\nMark it done on the Tasks page when it's finished.`,
       taskId: t.id,
       runId: run.id,
     });
@@ -358,6 +368,7 @@ async function perform(run: schema.AutomationRun): Promise<{ title: string; noti
           heading: `Due now: ${t.title}`,
           markdown: `${greeting}\n\nA reminder that this task is due.${details}`,
           footer: workspaceName,
+          path: null, // the assignee has no access to the app
         })
       : null;
     return { title: t.title, notificationId: notification.id, email };

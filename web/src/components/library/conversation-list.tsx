@@ -9,6 +9,7 @@
  * many messages it holds.
  */
 import { Check, Pencil, Trash2, X } from "lucide-react";
+import Link from "next/link";
 import { useMemo, useState, type FormEvent } from "react";
 import { IconButton } from "@/components/ui/button";
 import { SearchField } from "@/components/ui/search-field";
@@ -20,8 +21,12 @@ interface ConversationListProps {
   conversations: ConversationDTO[];
   activeId: string | null;
   loading: boolean;
-  onSelect: (id: string) => void;
+  /** Address of a conversation. */
+  hrefFor: (id: string) => string;
+  /** Called when one is opened (closes the menu on phones). */
+  onNavigate?: () => void;
   onRename: (id: string, title: string) => Promise<unknown>;
+  /** Asks for confirmation itself. */
   onDelete: (id: string) => Promise<unknown>;
 }
 
@@ -51,7 +56,8 @@ export function ConversationList({
   conversations,
   activeId,
   loading,
-  onSelect,
+  hrefFor,
+  onNavigate,
   onRename,
   onDelete,
 }: ConversationListProps) {
@@ -64,16 +70,11 @@ export function ConversationList({
     return groupByRecency(matching);
   }, [conversations, query]);
 
-  async function handleDelete(conversation: ConversationDTO) {
-    const confirmed = window.confirm(`Delete the conversation "${conversation.title}"? Documents are kept.`);
-    if (confirmed) await onDelete(conversation.id);
-  }
-
-  if (loading) return <p className="px-4 py-3 text-sm text-slate">Loading conversations…</p>;
+  if (loading) return <p className="px-4 text-sm text-slate">Loading conversations…</p>;
   if (conversations.length === 0) {
     return (
-      <p className="px-4 py-3 text-sm text-slate">
-        No saved conversations yet. Ask a question and it&apos;s saved here automatically.
+      <p className="px-4 text-sm text-slate">
+        No conversations yet. Ask a question and it&apos;s saved here automatically.
       </p>
     );
   }
@@ -104,12 +105,12 @@ export function ConversationList({
                 </li>
               ) : (
                 <li key={conversation.id} className="group relative">
-                  <button
-                    type="button"
-                    onClick={() => onSelect(conversation.id)}
+                  <Link
+                    href={hrefFor(conversation.id)}
+                    onClick={onNavigate}
                     aria-current={conversation.id === activeId ? "page" : undefined}
                     className={cn(
-                      "w-full rounded-md py-2 pr-16 pl-3 text-left transition-colors",
+                      "block w-full rounded-md py-2 pr-16 pl-3 text-left transition-colors",
                       conversation.id === activeId
                         ? "bg-paper shadow-[inset_2px_0_0_var(--ledger)]"
                         : "hover:bg-paper",
@@ -130,7 +131,7 @@ export function ConversationList({
                       {" · "}
                       {messageCountLabel(conversation.messageCount)}
                     </span>
-                  </button>
+                  </Link>
                   {/* Always visible on touch screens (no hover there). */}
                   <div className="absolute top-1/2 right-1 flex -translate-y-1/2 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
                     <IconButton
@@ -142,7 +143,7 @@ export function ConversationList({
                     </IconButton>
                     <IconButton
                       aria-label={`Delete ${conversation.title}`}
-                      onClick={() => handleDelete(conversation)}
+                      onClick={() => void onDelete(conversation.id)}
                       className="size-7 hover:text-alert"
                     >
                       <Trash2 className="size-3.5" />
