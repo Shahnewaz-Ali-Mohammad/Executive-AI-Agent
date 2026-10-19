@@ -2,7 +2,8 @@
 
 /**
  * One notification in the right-hand panel: a finished report (with its
- * sources, which open in the viewer), a reminder, a task falling due, or a
+ * sources, which open in the viewer), a reminder, a task falling due, a key
+ * date coming up, or a
  * failure with what to do about it.
  */
 import { Trash2 } from "lucide-react";
@@ -21,6 +22,7 @@ const KIND_LABELS: Record<NotificationKind, string> = {
   report: "Scheduled report",
   reminder: "Reminder",
   task_due: "Task due",
+  key_date: "Key date",
   error: "Problem",
 };
 
@@ -33,6 +35,7 @@ interface NotificationPanelProps {
   /** Open it inside its own workspace (so its sources can be opened). */
   onOpenElsewhere: (workspaceId: string) => void;
   onOpenTasks: () => void;
+  onOpenKeyDates: () => void;
   /** Called once it has been opened (and so marked read). */
   onOpened: () => void;
   onDelete: (id: string) => Promise<void>;
@@ -46,6 +49,7 @@ export function NotificationPanel({
   onOpenCitation,
   onOpenElsewhere,
   onOpenTasks,
+  onOpenKeyDates,
   onOpened,
   onDelete,
   onClose,
@@ -110,6 +114,11 @@ export function NotificationPanel({
       onClose={onClose}
       footer={
         <>
+          {notification.kind === "key_date" && !elsewhere && (
+            <Button variant="quiet" onClick={onOpenKeyDates}>
+              Open Key dates
+            </Button>
+          )}
           {(notification.scheduleId || notification.taskId) && !elsewhere && (
             <Button variant="quiet" onClick={onOpenTasks}>
               Open in Tasks

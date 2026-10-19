@@ -22,6 +22,7 @@ const KIND_LABELS: Record<NotificationKind, string> = {
   report: "Reports",
   reminder: "Reminders",
   task_due: "Due tasks",
+  key_date: "Key dates",
   error: "Problems",
 };
 

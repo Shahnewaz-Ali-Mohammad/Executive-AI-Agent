@@ -143,6 +143,7 @@ function buildPrompt(request: AnswerRequest, hits: Awaited<ReturnType<typeof hyb
   return [
     history && `Conversation so far:\n${history}`,
     `Documents in this workspace: ${request.documentNames.join(", ") || "(none)"}`,
+    request.keyFacts && `Key dates and facts (read from the documents):\n${request.keyFacts}`,
     `Excerpts from the documents (the most relevant passages, in file and page order):\n\n${
       excerpts || "(no matching passages were found)"
     }`,
@@ -230,7 +231,7 @@ export const openaiBackend: AiBackend = {
       reasoningEffort: mode.deep ? "medium" : "low",
       system: `${BASE_RULES}\n\n${mode.instructions}${rules}`,
       user: buildPrompt(request, hits),
-      tools: request.actions ? [...formTools(templates), ...actionTools()] : [],
+      tools: request.actions ? [...formTools(templates), ...actionTools(request.documentNames)] : [],
       signal: request.signal,
     })) {
       if (part.type === "text") {

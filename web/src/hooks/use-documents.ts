@@ -3,8 +3,9 @@
 /**
  * The documents of the open workspace.
  *
- * While any document is still "processing", the list is re-fetched every few
- * seconds so the CEO sees it turn "ready" (with its digest) without reloading.
+ * While any document is still "processing" (or its key dates are still being
+ * read), the list is re-fetched every few seconds so the CEO sees it turn
+ * "ready" (with its digest, type and dates) without reloading.
  *
  * The screen is re-mounted per workspace (keyed by its id), so this hook
  * always starts fresh for one workspace and never mixes two workspaces' files.
@@ -42,8 +43,10 @@ export function useDocuments(workspaceId: string) {
     };
   }, [workspaceId]);
 
-  // Poll while something is still being indexed.
-  const hasProcessing = documents.some((doc) => doc.status === "processing");
+  // Poll while something is still being indexed or read for key dates.
+  const hasProcessing = documents.some(
+    (doc) => doc.status === "processing" || (doc.status === "ready" && (doc.factsStatus === "pending" || doc.factsStatus === "running")),
+  );
   useEffect(() => {
     if (!hasProcessing) return;
     const timer = window.setInterval(refresh, POLL_INTERVAL_MS);
@@ -83,8 +86,25 @@ export function useDocuments(workspaceId: string) {
     }
   }, []);
 
+  /** Read one document (all, or those never read) again for key dates and facts. */
+  const rescan = useCallback(
+    async (documentId?: string, options: { onlyNotRead?: boolean } = {}): Promise<number> => {
+      setError(null);
+      try {
+        const { queued } = await api.rescanFacts(workspaceId, { documentId, ...options });
+        await refresh();
+        return queued;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not read the documents again.");
+        return 0;
+      }
+    },
+    [workspaceId, refresh],
+  );
+
   return {
     documents,
+    rescan,
     loading,
     uploading,
     error,

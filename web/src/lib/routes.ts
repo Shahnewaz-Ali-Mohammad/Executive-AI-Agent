@@ -5,6 +5,8 @@
  *   /w/:workspaceId                     → a new conversation
  *   /w/:workspaceId/c/:conversationId   → a saved conversation
  *   /w/:workspaceId/documents           → the workspace's files
+ *   /w/:workspaceId/key-dates           → renewal dates, deadlines and other facts read from the files
+ *                                         (?document=ID shows one document's)
  *   /w/:workspaceId/forms               → saved forms and templates
  *   /w/:workspaceId/tasks               → tasks, scheduled reports and reminders
  *   /w/:workspaceId/notifications       → everything under the bell
@@ -17,13 +19,15 @@
  * Shared by browser and server (emails link straight to a notification).
  */
 
-export type View = "chat" | "documents" | "forms" | "tasks" | "notifications" | "status";
+export type View = "chat" | "documents" | "key-dates" | "forms" | "tasks" | "notifications" | "status";
 
 export const routes = {
   workspace: (workspaceId: string) => `/w/${workspaceId}`,
   chat: (workspaceId: string, conversationId?: string | null) =>
     conversationId ? `/w/${workspaceId}/c/${conversationId}` : `/w/${workspaceId}`,
   documents: (workspaceId: string) => `/w/${workspaceId}/documents`,
+  keyDates: (workspaceId: string, documentId?: string | null) =>
+    `/w/${workspaceId}/key-dates${documentId ? `?document=${encodeURIComponent(documentId)}` : ""}`,
   forms: (workspaceId: string) => `/w/${workspaceId}/forms`,
   tasks: (workspaceId: string) => `/w/${workspaceId}/tasks`,
   notifications: (workspaceId: string) => `/w/${workspaceId}/notifications`,
@@ -35,6 +39,7 @@ export function viewFromPath(pathname: string): View {
   const section = pathname.split("/")[3];
   switch (section) {
     case "documents":
+    case "key-dates":
     case "forms":
     case "tasks":
     case "notifications":

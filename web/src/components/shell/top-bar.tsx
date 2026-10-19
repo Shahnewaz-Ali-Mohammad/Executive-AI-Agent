@@ -12,6 +12,7 @@ import { useWorkspace } from "./workspace-context";
 
 const TITLES: Record<Exclude<View, "chat">, string> = {
   documents: "Documents",
+  "key-dates": "Key dates",
   forms: "Forms",
   tasks: "Tasks & schedules",
   notifications: "Notifications",

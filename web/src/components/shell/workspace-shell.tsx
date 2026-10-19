@@ -25,6 +25,7 @@ import { FeedbackProvider, useFeedback } from "@/components/ui/feedback";
 import { useAutomations } from "@/hooks/use-automations";
 import { useConversations } from "@/hooks/use-conversations";
 import { useDocuments } from "@/hooks/use-documents";
+import { useKeyFacts } from "@/hooks/use-key-facts";
 import { useForms } from "@/hooks/use-forms";
 import { useNotifications } from "@/hooks/use-notifications";
 import { useWorkspaces } from "@/hooks/use-workspaces";
@@ -131,6 +132,7 @@ function WorkspaceScreen({
     [router, workspaceId],
   );
   const documents = useDocuments(workspaceId);
+  const keyFacts = useKeyFacts(workspaceId, documents.documents);
   const conversations = useConversations(workspaceId, {
     addressConversationId: params.conversationId ?? null,
     followAddress: view === "chat",
@@ -215,6 +217,7 @@ function WorkspaceScreen({
     view,
     workspaces,
     documents,
+    keyFacts,
     conversations,
     forms,
     automations,

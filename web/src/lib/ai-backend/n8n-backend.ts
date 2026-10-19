@@ -187,6 +187,7 @@ export const n8nBackend: AiBackend = {
         workspace_id: request.workspaceId,
         history: request.history,
         document_names: request.documentNames,
+        key_facts: request.keyFacts ?? "",
       }),
       signal: request.signal,
     });

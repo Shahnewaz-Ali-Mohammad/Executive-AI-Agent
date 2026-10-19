@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * Everything the pages of one workspace share: its data (documents,
- * conversations, forms, tasks, notifications) and the ways to move around
+ * Everything the pages of one workspace share: its data (documents, key
+ * dates, conversations, forms, tasks, notifications) and the ways to move around
  * (open the right-hand panel, pick files to upload).
  *
  * Provided by WorkspaceShell, which stays mounted while the CEO moves between
@@ -13,6 +13,7 @@ import type { useAutomations } from "@/hooks/use-automations";
 import type { useConversations } from "@/hooks/use-conversations";
 import type { useDocuments } from "@/hooks/use-documents";
 import type { useForms } from "@/hooks/use-forms";
+import type { useKeyFacts } from "@/hooks/use-key-facts";
 import type { useNotifications } from "@/hooks/use-notifications";
 import type { useWorkspaces } from "@/hooks/use-workspaces";
 import type { ResponseModeId } from "@/lib/response-modes";
@@ -25,6 +26,7 @@ export interface WorkspaceContextValue {
   view: View;
   workspaces: ReturnType<typeof useWorkspaces>;
   documents: ReturnType<typeof useDocuments>;
+  keyFacts: ReturnType<typeof useKeyFacts>;
   conversations: ReturnType<typeof useConversations>;
   forms: ReturnType<typeof useForms>;
   automations: ReturnType<typeof useAutomations>;

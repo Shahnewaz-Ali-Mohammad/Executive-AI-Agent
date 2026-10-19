@@ -7,6 +7,7 @@
  *   template  a new form template draft    → Save template
  *   task      a task for someone           → Create task
  *   schedule  a report or reminder to run  → Schedule
+ *   document  a document the CEO asked to see → Open (no confirmation needed)
  *
  * Shared by browser and server.
  */
@@ -48,7 +49,21 @@ export interface ScheduleCard {
   nextRunAt?: string | null;
 }
 
-export type ChatCard = FormAttachment | TaskCard | ScheduleCard;
+/** A document the CEO asked to see ("show me the Northwind contract"). */
+export interface DocumentCard {
+  kind: "document";
+  fileName: string;
+  /** Resolved by the chat route; null if the file has since been deleted. */
+  documentId: string | null;
+  /** The page to open on, when the question was about a specific part. */
+  page: number | null;
+  category: string | null;
+  tags: string[];
+  /** Upcoming and recent key dates from this document. */
+  facts: { kind: string; label: string; date: string | null; value: string | null; page: number | null }[];
+}
+
+export type ChatCard = FormAttachment | TaskCard | ScheduleCard | DocumentCard;
 
 const EMAIL = z.string().trim().email("Not a valid email address.").max(200);
 const optionalEmail = z
@@ -107,6 +122,9 @@ export function describeCard(card: ChatCard): string {
     }); ${card.scheduleKind === "report" ? `question: ${card.prompt}; mode: ${card.mode ?? "brief"}` : `message: ${card.prompt}`}${
       card.notifyEmail ? `; email: ${card.notifyEmail}` : ""
     }]`;
+  }
+  if (card.kind === "document") {
+    return `[Showed the document "${card.fileName}"${card.page ? ` at p. ${card.page}` : ""}]`;
   }
   return describeAttachment(card);
 }

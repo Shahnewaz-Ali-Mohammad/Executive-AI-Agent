@@ -12,6 +12,7 @@
  */
 import {
   boolean,
+  date,
   index,
   integer,
   jsonb,
@@ -65,10 +66,62 @@ export const documents = pgTable(
     summary: text("summary"),
     /** Why indexing failed, when status = "failed". */
     error: text("error"),
+    /** What kind of document it is (Contract, Invoice, Board pack …), found when key facts are read. */
+    category: text("category"),
+    /** A few short labels (e.g. "Northwind", "Lease"), editable. */
+    tags: jsonb("tags").$type<string[]>().notNull().default([]),
+    /** Reading of key facts: pending → running → done | failed (skipped: nothing to read). */
+    factsStatus: text("facts_status").notNull().default("pending"),
+    factsError: text("facts_error"),
+    /** Important things the document seems to be missing ("No end date"). */
+    warnings: jsonb("warnings").$type<string[]>().notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index("documents_workspace_idx").on(table.workspaceId)],
+);
+
+/**
+ * Key facts found in a document: dates that matter (renewal, expiry,
+ * deadline, payment, notice …), parties and amounts. Each keeps the page and
+ * the words it came from, so it can be checked in one click.
+ */
+export const documentFacts = pgTable(
+  "document_facts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    /** renewal | expiry | deadline | payment | notice | start | meeting | other_date | party | amount | other */
+    kind: text("kind").notNull(),
+    /** What it is, e.g. "Northwind contract auto-renews". */
+    label: text("label").notNull(),
+    /** The date, for date facts. */
+    date: date("date", { mode: "string" }),
+    /** The value for other facts ("BDT 1.2 million", "Northwind Ltd"), or extra detail. */
+    value: text("value"),
+    page: integer("page"),
+    /** The words in the document it was read from. */
+    quote: text("quote"),
+    /** unchecked (as read by the AI) | confirmed | dismissed */
+    status: text("status").notNull().default("unchecked"),
+    /** ai | manual */
+    source: text("source").notNull().default("ai"),
+    /** Remind this many days before the date (0 = on the day). */
+    reminderDays: jsonb("reminder_days").$type<number[]>().notNull().default([30, 7, 0]),
+    /** Which of those reminders have gone out (reset when the date changes). */
+    remindersSent: jsonb("reminders_sent").$type<number[]>().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("document_facts_workspace_date_idx").on(table.workspaceId, table.date),
+    index("document_facts_document_idx").on(table.documentId),
+  ],
 );
 
 /**
@@ -247,7 +300,10 @@ export const automationRuns = pgTable(
       .references(() => workspaces.id, { onDelete: "cascade" }),
     scheduleId: uuid("schedule_id").references(() => schedules.id, { onDelete: "set null" }),
     taskId: uuid("task_id").references(() => tasks.id, { onDelete: "set null" }),
-    /** report | reminder | task_due | task_assigned */
+    factId: uuid("fact_id").references(() => documentFacts.id, { onDelete: "set null" }),
+    /** Extra details, e.g. { daysBefore: 30 } for a key-date reminder. */
+    detail: jsonb("detail").$type<Record<string, unknown>>(),
+    /** report | reminder | task_due | task_assigned | key_date */
     type: text("type").notNull(),
     /** queued → claimed (by n8n) → running → succeeded | failed */
     status: text("status").notNull().default("queued"),
@@ -270,7 +326,7 @@ export const notifications = pgTable(
     workspaceId: uuid("workspace_id")
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
-    /** report | reminder | task_due | task_assigned | error */
+    /** report | reminder | task_due | task_assigned | key_date | error */
     kind: text("kind").notNull(),
     title: text("title").notNull(),
     /** Markdown (a full report, or a short message). */
@@ -301,6 +357,7 @@ export type ChatMessageRecord = typeof chatMessages.$inferSelect;
 export type FormTemplate = typeof formTemplates.$inferSelect;
 export type FormSubmission = typeof formSubmissions.$inferSelect;
 export type Task = typeof tasks.$inferSelect;
+export type DocumentFact = typeof documentFacts.$inferSelect;
 export type Schedule = typeof schedules.$inferSelect;
 export type AutomationRun = typeof automationRuns.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;

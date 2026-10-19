@@ -41,16 +41,34 @@ documents stay on your own server.
   question.
 - **Dated messages**: every question and answer shows its date and time, with
   a divider when the day changes.
-- **Clear navigation**: a menu with **Documents**, **Forms**, **Tasks &
-  schedules** and **Notifications**, each a full page with its own address.
+- **Clear navigation**: a menu with **Documents**, **Key dates**, **Forms**,
+  **Tasks & schedules** and **Notifications**, each a full page with its own address.
   Back and Forward, reloading and links all work, including the panel on
   the right (a source page, a saved form, a report). On phones: a slide-in
   menu and a tab bar at the bottom. An answer keeps streaming while you look
   at another page.
-- **Documents page**: add files (button or drag and drop), search, filter by
-  PDFs / Images / Office files / Not ready, a picture grid for images, status,
-  pages, size, upload time and digest of every file; open, ask about it, or
-  delete.
+- **Documents page**: add files (button or drag and drop), search by name or
+  tag, filter by PDFs / Images / Office files / Not ready and by type
+  (Contract, Invoice, Board pack …), a picture grid for images, status, pages,
+  size, upload time and digest of every file, its next key date and anything
+  it seems to be missing (e.g. "not signed by the Company"); open, ask about
+  it, read it again for dates, or delete.
+- **Key dates (read automatically from every upload)**: renewals, expiries,
+  deadlines, notice / cancel-by dates, payments, start dates and meetings,
+  plus parties and amounts, each with the page and the sentence it came from.
+  Each document also gets a type and tags. The **Key dates** page lists them
+  by month (next 30 / 90 days, all upcoming, past, still to check, by type) or
+  on a calendar; click a source to open that page, then **Confirm**, correct
+  or dismiss each one, or add a date by hand. **Excel** downloads the
+  register. Reminders arrive under the bell (and by email, if an address is
+  set) 30 days and 7 days before each date and on the day; an optional
+  summary of the next 30 days comes every Monday at 08:00. Documents uploaded
+  before this feature can be read with one click (**Read them now**).
+- **Ask about dates, open documents from the chat**: *"When does the Northwind
+  contract renew?"* is answered from the register with the page cited;
+  *"Show me the Northwind contract"* brings up a card with the document's
+  type, tags and coming dates, and buttons to open it at the right page or see
+  all its key dates.
 - **Forms filled in from the chat**: say *"Fill a leave request for Rahim
   from Finance, sick leave 12–14 October"* and the matching form appears in
   the chat already filled in. Missing required fields are flagged and asked
@@ -66,7 +84,7 @@ documents stay on your own server.
   them when the task falls due, writes each report on time (same search and
   sources as the chat) and delivers reminders.
 - **Notifications**: a bell with an unread count collects finished reports,
-  reminders, tasks that fell due and anything that failed. Reports open beside
+  reminders, tasks that fell due, coming key dates and anything that failed. Reports open beside
   the chat with clickable sources. Results can also be emailed (optional SMTP).
 - **Tasks & schedules page**: open tasks (soonest due first, overdue in red,
   whether the assignee was emailed), done tasks, and every schedule with its
@@ -209,6 +227,10 @@ automatically when the app starts.
 | Get a regular report | "Every weekday at 7:30 brief me on cash and open risks", press **Schedule** |
 | Be reminded | "Remind me on the 30th at 10:00 to sign the lease", press **Schedule** |
 | See results | The bell (top right); reports open beside the chat with their sources |
+| Know what renews or falls due | **Key dates** page, or ask "What renews or expires in the next 90 days?" |
+| Find a document | "Show me the Northwind contract": a card opens it at the right page |
+| Check a date the AI found | **Key dates**: click its source, then **Confirm**, edit or dismiss |
+| Get reminders by email | **Key dates** → Reminders: add your email; optional Monday summary |
 | Manage tasks and schedules | **Tasks & schedules** page: mark done, run now, pause, resume, delete |
 | Check everything works | **System status** (bottom of the menu) |
 
@@ -300,6 +322,13 @@ the link it prints. Set `APP_PASSWORD` first.
 - **Emails don't arrive**: set `SMTP_*` in `.env`, then
   `docker compose up -d n8n` (the credential is rebuilt on every start). A
   failed email shows up under the bell with the server's reason.
+- **No key dates appear for a document**: on the Documents page it shows
+  "Key dates couldn't be read" with the reason in the log; use **Read again**
+  (the circular arrow). Scanned pages are read from their transcription.
+- **Chat with `AI_BACKEND=n8n` ignores key dates**: the chat workflow was
+  updated to use them; re-import it once with
+  `docker compose exec n8n rm /home/node/.n8n/.executive-agent/ExecAgentChat001`
+  and `docker compose restart n8n` (this overwrites edits made in the n8n editor).
 - **Port 3100 is in use**: stop the other app, or change the port in
   `web/package.json`.
 
@@ -318,7 +347,7 @@ the link it prints. Set `APP_PASSWORD` first.
 
 ## Roadmap
 
-- **Proactive**: pre-meeting briefs from the calendar, contract deadline
-  reminders found in documents, "what changed" between versions.
+- **Proactive**: pre-meeting briefs from the calendar, "what changed"
+  between versions of a document.
 - **Acting on the CEO's behalf**: follow-ups with approval, chasing late
   reports, meeting action items, single sign-on.

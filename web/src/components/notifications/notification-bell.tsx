@@ -5,7 +5,7 @@
  * notifications (finished reports, reminders, tasks falling due, failures)
  * from every workspace. Choosing one opens it in the right-hand panel.
  */
-import { AlertTriangle, Bell, BellRing, CalendarClock, ListTodo } from "lucide-react";
+import { AlertTriangle, Bell, BellRing, CalendarClock, CalendarDays, ListTodo } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { IconButton } from "@/components/ui/button";
@@ -17,6 +17,7 @@ export const NOTIFICATION_ICONS: Record<NotificationKind, typeof Bell> = {
   report: CalendarClock,
   reminder: BellRing,
   task_due: ListTodo,
+  key_date: CalendarDays,
   error: AlertTriangle,
 };
 

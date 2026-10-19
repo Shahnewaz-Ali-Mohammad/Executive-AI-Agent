@@ -1,7 +1,7 @@
 "use client";
 
-/** Bottom tab bar on phones: Chat · Documents · Forms · Tasks. */
-import { ClipboardList, FileText, ListTodo, MessageSquare } from "lucide-react";
+/** Bottom tab bar on phones: Chat · Documents · Dates · Forms · Tasks. */
+import { CalendarDays, ClipboardList, FileText, ListTodo, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { routes, workspaceHome, type View } from "@/lib/routes";
@@ -17,6 +17,7 @@ export function MobileNav() {
   const items: { view: View; href: string; label: string; Icon: typeof FileText; badge?: number }[] = [
     { view: "chat", href: routes.chat(workspaceId, ws.conversations.activeId), label: "Chat", Icon: MessageSquare },
     { view: "documents", href: routes.documents(workspaceId), label: "Documents", Icon: FileText },
+    { view: "key-dates", href: routes.keyDates(workspaceId), label: "Dates", Icon: CalendarDays },
     { view: "forms", href: routes.forms(workspaceId), label: "Forms", Icon: ClipboardList },
     { view: "tasks", href: routes.tasks(workspaceId), label: "Tasks", Icon: ListTodo, badge: openTasks },
   ];

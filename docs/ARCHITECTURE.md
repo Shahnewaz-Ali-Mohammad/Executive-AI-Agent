@@ -215,6 +215,11 @@ All routes require login, except those marked public.
 | `GET /api/notifications` | Latest notifications (all workspaces), unread count, scheduler health |
 | `GET/DELETE /api/notifications/:id` | Full notification (marks it read) / delete |
 | `POST /api/notifications/read` | Mark some (`{ids}`) or all as read |
+| `GET/POST /api/workspaces/:id/key-facts` | Key dates and facts with the reminder settings / add one by hand |
+| `PATCH/DELETE /api/key-facts/:id` | Correct, confirm, dismiss (`{status}`) / delete; a new date restarts its reminders |
+| `POST /api/workspaces/:id/key-facts/rescan` | Read documents again (`{documentId?, onlyNotRead?}`) |
+| `GET /api/workspaces/:id/key-facts/export` | The register as an Excel file |
+| `PUT /api/workspaces/:id/key-facts/settings` | `{reminderEmail?, weeklySummary?}` (the summary is a normal weekly schedule) |
 | `POST /api/internal/ingest-callback` | From n8n (public, secret-protected) |
 | `POST /api/internal/automation/due` | From n8n's scheduler, every minute (public, secret-protected) |
 | `POST /api/internal/automation/runs/:id/execute` | From n8n: run one job, get the email to send |
@@ -227,7 +232,14 @@ All routes require login, except those marked public.
 workspaces      id, name, description, created_at
 documents       id, workspace_id→, file_name, mime_type, size_bytes, storage_key,
                 status(processing|ready|failed), page_count, chunk_count,
-                summary, error, created_at, updated_at
+                summary, error, category, tags(jsonb), warnings(jsonb),
+                facts_status(not_read|pending|running|done|failed|skipped), facts_error,
+                created_at, updated_at
+document_facts  id, workspace_id→, document_id→, kind(renewal|expiry|deadline|payment|
+                notice|start|meeting|other_date|party|amount|other), label, date,
+                value, page, quote, status(unchecked|confirmed|dismissed),
+                source(ai|manual), reminder_days(jsonb, default [30,7,0]),
+                reminders_sent(jsonb), created_at, updated_at
 document_pages  id, document_id→, page_number, content          (unique doc+page)
 conversations   id, workspace_id→, title, created_at, updated_at
 chat_messages   id (AG-UI message id), workspace_id→, conversation_id→, role,
@@ -242,14 +254,15 @@ tasks           id, workspace_id→, conversation_id→, title, details, assigne
 schedules       id, workspace_id→, conversation_id→, kind(report|reminder), title,
                 prompt, mode, recurrence(jsonb), time_zone, next_run_at,
                 last_run_at, active, notify_email, created_at, updated_at
-automation_runs id, workspace_id→, schedule_id→, task_id→,
-                type(report|reminder|task_due|task_assigned),
+automation_runs id, workspace_id→, schedule_id→, task_id→, fact_id→, detail(jsonb),
+                type(report|reminder|task_due|task_assigned|key_date),
                 status(queued|claimed|running|succeeded|failed), scheduled_for,
                 started_at, finished_at, error, notification_id, delivery(jsonb)
-notifications   id, workspace_id→, kind(report|reminder|task_due|error), title,
+notifications   id, workspace_id→, kind(report|reminder|task_due|key_date|error), title,
                 body(markdown), citations(jsonb), mode, task_id→, schedule_id→,
                 run_id, read_at, created_at
-app_settings    key, value(jsonb), updated_at        (the scheduler's heartbeat)
+app_settings    key, value(jsonb), updated_at        (the scheduler's heartbeat;
+                key-facts:<workspace id> → reminder email, weekly summary schedule)
 ```
 
 A workspace holds many conversations. "New conversation" starts a fresh one,
@@ -319,13 +332,14 @@ Forms turn something said in the chat into a structured, saved record.
 The CEO asks in the chat; n8n keeps time and delivers; the app keeps the data
 and does the AI work.
 
-**From the chat.** With every question the OpenAI backend also offers two
+**From the chat.** With every question the OpenAI backend also offers these
 strict-mode tools (`ai-backend/openai/action-tools.ts`):
 
 | Tool | For | Card |
 |---|---|---|
 | `create_task` | "Ask Rahim to send the Q3 numbers by Friday" | title, assignee name and optional email, due date and time, details → **Create task** |
 | `create_schedule` | "Every Monday at 8 give me a risk scan…", "Remind me tomorrow at 3pm…" | kind (report / reminder), prompt, answer mode, recurrence, optional email → **Schedule** |
+| `open_document` | "Show me the Northwind contract" | the document's type, tags and coming dates → **Open** (at the page) / **Key dates** |
 
 The browser sends its time zone with every question (`forwardedProps.timeZone`),
 so "tomorrow at 9" and "every weekday at 07:30" mean the CEO's local time.
@@ -372,6 +386,41 @@ hasn't checked in for three minutes.
 `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` in `.env`). Links in emails use
 `APP_PUBLIC_URL`.
 
+## Key dates and facts
+
+**Reading.** When a document is ready (`completeIngestion`), it is queued for
+`lib/data/facts-extract.ts` (one document at a time, in the background). The
+page text, with `=== PAGE n ===` markers, goes to `OPENAI_MODEL_FAST` with a
+strict JSON schema: a category (Contract, Invoice, Board pack …), up to 5
+tags, the facts (kind, label, date `YYYY-MM-DD` or null, value, page, exact
+quote) and warnings (important things the document seems to lack). Today's
+date is given so "within 30 days of signing" can be resolved when the signing
+date is in the text. Results are checked (valid kinds, real calendar dates, page numbers) and
+de-duplicated. With `AI_BACKEND=mock` a simple pattern reader is
+used instead. Reading again keeps what the CEO confirmed, corrected or
+dismissed, replaces only unchecked AI entries, and doesn't repeat reminders
+already sent. Documents uploaded before this feature are `not_read` until
+the CEO asks (**Read them now**). A document left `pending` by a restart is
+queued again the next time the list is loaded.
+
+**Using them.** Every chat question and scheduled report gets the register as
+cited lines (`[file, p. N] Renewal 2026-11-18 (30 days from today): …`,
+upcoming first, at most 80) under "Key dates and facts", with a rule to answer
+date questions from it and cite it like an excerpt. The `open_document` tool
+(file name from the workspace's list, optional page) gives a **document card**;
+the chat route finds the file and adds its type, tags and coming dates.
+
+**Reminders.** In `claimDueRuns`, from 08:00 in `DEFAULT_TIME_ZONE`, each
+fact that isn't dismissed and whose date is today or later is checked against
+its `reminder_days` (30, 7, 0): when a threshold has been reached and not yet
+sent, one `key_date` run is queued (only one even if several thresholds were
+reached at once, e.g. a date added 5 days before) and the thresholds are
+marked sent. The run becomes a `key_date` notification ("In 7 days: Last day
+to give notice…") with the source cited, and an email to the workspace's
+reminder address if one is set. Changing a fact's date starts its reminders
+again. The weekly summary is an ordinary report schedule (Mondays 08:00) whose
+question asks for the next 30 days from the register.
+
 ## Screens and navigation
 
 Every screen has its own address, so Back, Forward, reload and links work
@@ -383,6 +432,7 @@ Every screen has its own address, so Back, Forward, reload and links work
 | `/w/:workspaceId` | A new conversation |
 | `/w/:workspaceId/c/:conversationId` | A saved conversation |
 | `/w/:workspaceId/documents` | Documents |
+| `/w/:workspaceId/key-dates` | Key dates (`?document=ID` for one document's) |
 | `/w/:workspaceId/forms` | Saved forms and templates |
 | `/w/:workspaceId/tasks` | Tasks, scheduled reports and reminders |
 | `/w/:workspaceId/notifications` | Everything under the bell |

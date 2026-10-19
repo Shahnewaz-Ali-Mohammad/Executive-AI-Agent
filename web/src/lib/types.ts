@@ -31,7 +31,46 @@ export interface DocumentDTO {
   chunkCount: number | null;
   summary: string | null;
   error: string | null;
+  /** Contract, Invoice, Board pack … (once key facts have been read). */
+  category: string | null;
+  tags: string[];
+  /**
+   * Reading of key dates and facts. "not_read": uploaded before this feature
+   * existed (read on request, with "Read again").
+   */
+  factsStatus: "not_read" | "pending" | "running" | "done" | "failed" | "skipped";
+  /** Important things the document seems to be missing. */
+  warnings: string[];
   createdAt: string;
+}
+
+export interface FactDTO {
+  id: string;
+  documentId: string;
+  fileName: string;
+  kind: string;
+  label: string;
+  /** "YYYY-MM-DD" for date facts. */
+  date: string | null;
+  value: string | null;
+  page: number | null;
+  quote: string | null;
+  status: "unchecked" | "confirmed" | "dismissed";
+  source: "ai" | "manual";
+  reminderDays: number[];
+  createdAt: string;
+}
+
+export interface KeyFactsSettingsDTO {
+  /** Where key-date reminders are emailed (besides the bell). */
+  reminderEmail: string | null;
+  /** The weekly summary schedule, if turned on. */
+  weeklySummaryScheduleId: string | null;
+}
+
+export interface KeyFactsDTO {
+  facts: FactDTO[];
+  settings: KeyFactsSettingsDTO;
 }
 
 export interface DocumentPageDTO {
@@ -127,7 +166,7 @@ export interface ScheduleDTO {
   lastRun: LastRunDTO | null;
 }
 
-export type NotificationKind = "report" | "reminder" | "task_due" | "error";
+export type NotificationKind = "report" | "reminder" | "task_due" | "key_date" | "error";
 
 export interface NotificationDTO {
   id: string;

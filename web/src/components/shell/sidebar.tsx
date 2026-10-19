@@ -5,13 +5,13 @@
  *
  *   Workspace ▾          switch, create, rename, delete
  *   + New conversation
- *   Documents · Forms · Tasks & schedules · Notifications   (with counts)
+ *   Documents · Key dates · Forms · Tasks & schedules · Notifications   (with counts)
  *   Conversations        searchable, grouped by date
  *   ● Scheduler status · Sign out
  *
  * On wide screens it's always there; on phones it slides in from the left.
  */
-import { Bell, ClipboardList, FileText, ListTodo, LogOut, SquarePen, X } from "lucide-react";
+import { Bell, CalendarDays, ClipboardList, FileText, ListTodo, LogOut, SquarePen, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
@@ -22,6 +22,7 @@ import { useFeedback } from "@/components/ui/feedback";
 import { api } from "@/lib/api-client";
 import { lastVisited, routes, workspaceHome, type View } from "@/lib/routes";
 import { cn } from "@/lib/utils";
+import { countUpcoming, todayHere } from "@/lib/facts";
 import { useWorkspace } from "./workspace-context";
 
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -40,6 +41,14 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       label: "Documents",
       icon: <FileText className="size-4" aria-hidden />,
       count: ws.documents.documents.length,
+    },
+    {
+      view: "key-dates",
+      href: routes.keyDates(workspaceId),
+      label: "Key dates",
+      icon: <CalendarDays className="size-4" aria-hidden />,
+      // Dates in the next 30 days.
+      count: countUpcoming(ws.keyFacts.facts, todayHere(), 30),
     },
     {
       view: "forms",

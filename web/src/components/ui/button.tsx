@@ -15,6 +15,14 @@ const VARIANTS: Record<Variant, string> = {
   ghost: "text-slate hover:bg-paper hover:text-ink",
 };
 
+const BASE =
+  "inline-flex items-center justify-center gap-2 rounded-md px-3.5 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
+
+/** The button look for a link (`<Link className={buttonStyles("quiet")}>`). */
+export function buttonStyles(variant: Variant = "primary", className?: string): string {
+  return cn(BASE, VARIANTS[variant], className);
+}
+
 export function Button({
   variant = "primary",
   className,
@@ -24,11 +32,7 @@ export function Button({
   return (
     <button
       type={type}
-      className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-md px-3.5 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-        VARIANTS[variant],
-        className,
-      )}
+      className={buttonStyles(variant, className)}
       {...props}
     />
   );

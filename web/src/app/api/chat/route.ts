@@ -10,7 +10,7 @@
  *   STEP_FINISHED "reading_documents"      ← when the first words arrive
  *   TEXT_MESSAGE_START / CONTENT… / END    ← the answer, streamed
  *   CUSTOM "citations"                     ← citations resolved to document ids
- *   CUSTOM "card"                          ← only when the answer carries a card (form, task, schedule)
+ *   CUSTOM "card"                          ← only when the answer carries a card (form, task, schedule, document)
  *   RUN_FINISHED                           (or RUN_ERROR if anything fails)
  *
  * This route is the "translator": the AI backend (n8n or mock) just yields
@@ -24,6 +24,7 @@ import { aiBackend, type ChatTurn } from "@/lib/ai-backend";
 import { extractCitations } from "@/lib/citations";
 import { requireConversation } from "@/lib/data/conversations";
 import { listCitableDocuments } from "@/lib/data/documents";
+import { documentCardDetails, factsForPrompt } from "@/lib/data/facts";
 import { listTemplates } from "@/lib/data/forms";
 import { listMessages, saveMessage } from "@/lib/data/messages";
 import { describeCard, type ChatCard } from "@/lib/cards";
@@ -82,7 +83,11 @@ export async function POST(request: NextRequest) {
       .slice(-HISTORY_TURNS)
       .map((message) => ({ role: message.role, content: historyText(message) }));
 
-    const [documents, formTemplates] = await Promise.all([listCitableDocuments(workspaceId), listTemplates()]);
+    const [documents, formTemplates, keyFacts] = await Promise.all([
+      listCitableDocuments(workspaceId),
+      listTemplates(),
+      factsForPrompt(workspaceId),
+    ]);
     await saveMessage({ id: question.id, workspaceId, conversationId, role: "user", content: question.content, mode });
 
     // 3. Stream the answer as AG-UI events.
@@ -102,6 +107,7 @@ export async function POST(request: NextRequest) {
         mode,
         history,
         documentNames: documents.map((doc) => doc.fileName),
+        keyFacts,
         formTemplates,
         actions: true,
         timeZone,
@@ -132,6 +138,9 @@ export async function POST(request: NextRequest) {
         name: CITATIONS_EVENT,
         value: { messageId, citations } satisfies CitationsEventValue,
       } as BaseEvent);
+
+      // "Show me the Northwind contract": find the file and add its type, tags and dates.
+      if (card?.kind === "document") card = await documentCardDetails(workspaceId, card);
 
       if (card) {
         emit({ type: EventType.CUSTOM, name: CARD_EVENT, value: { messageId, card } satisfies CardEventValue } as BaseEvent);

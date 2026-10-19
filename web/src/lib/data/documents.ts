@@ -9,6 +9,7 @@ import type { CitableDocument } from "@/lib/citations";
 import { db, schema } from "@/lib/db";
 import { env } from "@/lib/env";
 import { HttpError, isUuid } from "@/lib/http";
+import { queueFactExtraction, resumeFactExtraction } from "./facts-extract";
 import type { DocumentDTO, DocumentPageDTO } from "@/lib/types";
 
 const { documents, documentPages } = schema;
@@ -25,6 +26,10 @@ function toDTO(row: schema.DocumentRecord): DocumentDTO {
     chunkCount: row.chunkCount,
     summary: row.summary,
     error: row.error,
+    category: row.category,
+    tags: row.tags,
+    factsStatus: row.factsStatus as DocumentDTO["factsStatus"],
+    warnings: row.warnings,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -58,6 +63,7 @@ export async function listDocuments(workspaceId: string): Promise<DocumentDTO[]>
     .from(documents)
     .where(eq(documents.workspaceId, workspaceId))
     .orderBy(desc(documents.createdAt));
+  resumeFactExtraction(rows);
   return rows.map(toDTO);
 }
 
@@ -141,10 +147,14 @@ export async function completeIngestion(result: IngestionResult): Promise<void> 
         pageCount: pages.length || null,
         summary: result.summary ?? null,
         error: null,
+        factsStatus: "pending",
         updatedAt: new Date(),
       })
       .where(eq(documents.id, existing.id));
   });
+
+  // Then read its key dates and facts in the background.
+  queueFactExtraction([existing.id]);
 }
 
 /** The text of one page, for the citation viewer. */

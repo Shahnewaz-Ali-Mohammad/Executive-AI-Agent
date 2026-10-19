@@ -29,6 +29,13 @@
       "when": 1791970896609,
       "tag": "0003_automations",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792405920889,
+      "tag": "0004_key_facts",
+      "breakpoints": true
     }
   ]
 }

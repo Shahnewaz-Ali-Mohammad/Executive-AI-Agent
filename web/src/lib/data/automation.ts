@@ -5,7 +5,8 @@
  *
  *   every minute, n8n → POST /api/internal/automation/due
  *       claimDueRuns(): records the heartbeat, queues what has fallen due
- *       (schedules whose time has come, tasks past their deadline) and hands
+ *       (schedules whose time has come, tasks past their deadline, key dates
+ *       30 / 7 / 0 days away) and hands
  *       n8n the queued runs, each claimed exactly once (row locks with
  *       SKIP LOCKED, so overlapping executions never pick the same run).
  *
@@ -26,15 +27,18 @@ import { aiBackend } from "@/lib/ai-backend";
 import { extractCitations } from "@/lib/citations";
 import { db, schema } from "@/lib/db";
 import { buildEmail, type EmailMessage } from "@/lib/email";
+import { env } from "@/lib/env";
+import { addDays, daysBetween, FACT_KIND_LABELS, isFactKind, relativeDays, todayIn } from "@/lib/facts";
 import { HttpError, isUuid } from "@/lib/http";
 import { notificationHref } from "@/lib/routes";
 import { DEFAULT_RESPONSE_MODE, getResponseMode, isResponseMode } from "@/lib/response-modes";
-import { nextOccurrence } from "@/lib/schedule";
+import { localParts, nextOccurrence, safeTimeZone } from "@/lib/schedule";
 import type { SchedulerStatusDTO } from "@/lib/types";
 import { listCitableDocuments } from "./documents";
+import { factsForPrompt, getFactSettings } from "./facts";
 import { createNotification } from "./notifications";
 
-const { schedules, tasks, automationRuns, appSettings, workspaces } = schema;
+const { schedules, tasks, automationRuns, appSettings, workspaces, documentFacts, documents } = schema;
 
 /** Most runs handed to n8n per check (the rest wait for the next minute). */
 const CLAIM_BATCH = 10;
@@ -42,6 +46,8 @@ const CLAIM_BATCH = 10;
 const RUN_TIMEOUT_MINUTES = 15;
 /** Longest a single report may take. */
 const REPORT_TIMEOUT_MS = 8 * 60_000;
+/** Key-date reminders go out from this hour (local time) on the day they fall due. */
+const KEY_DATE_REMINDER_HOUR = 8;
 /** The scheduler counts as healthy if it checked in this recently. */
 const HEARTBEAT_HEALTHY_MS = 3 * 60_000;
 
@@ -139,7 +145,41 @@ export async function claimDueRuns(options: { emailEnabled: boolean }): Promise<
       await tx.update(tasks).set({ dueNotifiedAt: now }).where(eq(tasks.id, t.id));
     }
 
-    // 4. Hand over queued runs, oldest first, each to exactly one caller.
+    // 4. Key dates: a reminder when a date comes within 30 days, 7 days, and on the
+    //    day (each fact's reminderDays), from 08:00 local time. If several
+    //    thresholds have passed at once (a date added late), only one reminder goes out.
+    const zone = safeTimeZone(env.DEFAULT_TIME_ZONE);
+    if (localParts(now, zone).hour >= KEY_DATE_REMINDER_HOUR) {
+      const today = todayIn(zone, now);
+      const candidates = await tx
+        .select()
+        .from(documentFacts)
+        .where(
+          and(
+            sql`${documentFacts.status} <> 'dismissed'`,
+            sql`${documentFacts.date} is not null`,
+            sql`${documentFacts.date} >= ${today}`,
+            sql`${documentFacts.date} <= ${addDays(today, 366)}`,
+          ),
+        )
+        .for("update", { skipLocked: true });
+      for (const fact of candidates) {
+        const daysLeft = daysBetween(today, fact.date!);
+        const due = fact.reminderDays.filter((d) => d >= daysLeft && !fact.remindersSent.includes(d));
+        if (due.length === 0) continue;
+        await tx.insert(automationRuns).values({
+          workspaceId: fact.workspaceId,
+          factId: fact.id,
+          type: "key_date",
+          scheduledFor: now,
+          detail: { daysLeft, date: fact.date },
+        });
+        const sent = [...new Set([...fact.remindersSent, ...fact.reminderDays.filter((d) => d >= daysLeft)])];
+        await tx.update(documentFacts).set({ remindersSent: sent }).where(eq(documentFacts.id, fact.id));
+      }
+    }
+
+    // 5. Hand over queued runs, oldest first, each to exactly one caller.
     const queued = await tx
       .select({ id: automationRuns.id })
       .from(automationRuns)
@@ -165,12 +205,14 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 async function runTitles(tx: Tx, runs: schema.AutomationRun[]): Promise<Map<string, string>> {
   const scheduleIds = runs.flatMap((r) => (r.scheduleId ? [r.scheduleId] : []));
   const taskIds = runs.flatMap((r) => (r.taskId ? [r.taskId] : []));
-  const [s, t] = await Promise.all([
+  const factIds = runs.flatMap((r) => (r.factId ? [r.factId] : []));
+  const [s, t, f] = await Promise.all([
     scheduleIds.length ? tx.select({ id: schedules.id, title: schedules.title }).from(schedules).where(inArray(schedules.id, scheduleIds)) : [],
     taskIds.length ? tx.select({ id: tasks.id, title: tasks.title }).from(tasks).where(inArray(tasks.id, taskIds)) : [],
+    factIds.length ? tx.select({ id: documentFacts.id, title: documentFacts.label }).from(documentFacts).where(inArray(documentFacts.id, factIds)) : [],
   ]);
-  const byId = new Map([...s, ...t].map((x) => [x.id, x.title]));
-  return new Map(runs.map((r) => [r.id, byId.get(r.scheduleId ?? r.taskId ?? "") ?? r.type]));
+  const byId = new Map([...s, ...t, ...f].map((x) => [x.id, x.title]));
+  return new Map(runs.map((r) => [r.id, byId.get(r.scheduleId ?? r.taskId ?? r.factId ?? "") ?? r.type]));
 }
 
 // --- Executing -----------------------------------------------------------------------
@@ -222,7 +264,10 @@ export async function executeRun(runId: string): Promise<RunOutcome> {
       workspaceId: run.workspaceId,
       kind: "error",
       title: `Couldn't run “${title}”`,
-      body: `The ${run.type.replace("_", " ")} failed: ${message}\n\nIt will run again at its next scheduled time. You can also use **Run now** on the Tasks page.`,
+      body:
+        run.type === "key_date"
+          ? `The reminder for this key date couldn't be prepared: ${message}\n\nSee the date on the Key dates page.`
+          : `The ${run.type.replace("_", " ")} failed: ${message}\n\nIt will run again at its next scheduled time. You can also use **Run now** on the Tasks page.`,
       scheduleId: run.scheduleId,
       taskId: run.taskId,
       runId: run.id,
@@ -244,7 +289,11 @@ async function titleOf(run: schema.AutomationRun): Promise<string> {
     const [t] = await db.select({ title: tasks.title }).from(tasks).where(eq(tasks.id, run.taskId));
     if (t) return t.title;
   }
-  return run.type;
+  if (run.factId) {
+    const [f] = await db.select({ title: documentFacts.label }).from(documentFacts).where(eq(documentFacts.id, run.factId));
+    if (f) return f.title;
+  }
+  return run.type === "key_date" ? "key date reminder" : run.type;
 }
 
 async function perform(run: schema.AutomationRun): Promise<{ title: string; notificationId: string | null; email: EmailMessage | null }> {
@@ -291,6 +340,7 @@ async function perform(run: schema.AutomationRun): Promise<{ title: string; noti
       mode,
       history: [],
       documentNames: documents.map((d) => d.fileName),
+      keyFacts: await factsForPrompt(s.workspaceId),
       formTemplates: [],
       actions: false,
       timeZone: s.timeZone,
@@ -323,6 +373,69 @@ async function perform(run: schema.AutomationRun): Promise<{ title: string; noti
         })
       : null;
     return { title: s.title, notificationId: notification.id, email };
+  }
+
+  // --- Key date reminder ---
+  if (run.type === "key_date") {
+    if (!run.factId) throw new Error("The key date was deleted.");
+    const [row] = await db
+      .select({ fact: documentFacts, fileName: documents.fileName })
+      .from(documentFacts)
+      .innerJoin(documents, eq(documents.id, documentFacts.documentId))
+      .where(eq(documentFacts.id, run.factId));
+    if (!row) throw new Error("The key date was deleted.");
+    const { fact, fileName } = row;
+    const zone = safeTimeZone(env.DEFAULT_TIME_ZONE);
+    const daysLeft = fact.date ? daysBetween(todayIn(zone), fact.date) : 0;
+    const kind = isFactKind(fact.kind) ? FACT_KIND_LABELS[fact.kind] : "Key date";
+    const when = relativeDays(daysLeft);
+    // "In 7 days: Last day to give notice to cancel the Northwind renewal"
+    const title = `${when.charAt(0).toUpperCase()}${when.slice(1)}: ${fact.label}`;
+    const source = `[${fileName}${fact.page ? `, p. ${fact.page}` : ""}]`;
+    const longDate = fact.date
+      ? new Date(`${fact.date}T00:00:00Z`).toLocaleDateString("en-GB", {
+          weekday: "long",
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+          timeZone: "UTC",
+        })
+      : "";
+    const body = [
+      `**${fact.label}** — ${kind.toLowerCase()}, ${longDate} (${when}). ${source}`,
+      fact.value ? `Detail: ${fact.value}` : "",
+      fact.quote ? `> “${fact.quote}” ${source}` : "",
+      fact.kind === "notice"
+        ? "This is the last day to give notice. If you want to cancel or renegotiate, act before then."
+        : fact.kind === "renewal"
+          ? "Check whether there is a notice period to cancel or renegotiate before it renews."
+          : "",
+      fact.status === "unchecked" ? "_Read from the document by the assistant and not yet checked. Confirm it on the Key dates page._" : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    const citations = extractCitations(body, await listCitableDocuments(run.workspaceId));
+    const notification = await createNotification({
+      workspaceId: run.workspaceId,
+      kind: "key_date",
+      title,
+      body,
+      citations,
+      runId: run.id,
+    });
+    const { reminderEmail } = await getFactSettings(run.workspaceId);
+    const email = reminderEmail
+      ? buildEmail({
+          to: reminderEmail,
+          subject: title,
+          heading: title,
+          markdown: body,
+          footer: `${workspaceName} · key dates`,
+          path: notificationHref(run.workspaceId, notification.id),
+        })
+      : null;
+    return { title, notificationId: notification.id, email };
   }
 
   // --- Tasks ---

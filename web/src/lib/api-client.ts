@@ -15,6 +15,9 @@ import type {
   ConversationDTO,
   DocumentDTO,
   DocumentPageDTO,
+  FactDTO,
+  KeyFactsDTO,
+  KeyFactsSettingsDTO,
   FormSubmissionDTO,
   FormTemplateDTO,
   WorkspaceDTO,
@@ -86,6 +89,19 @@ export const api = {
   updateSubmission: (id: string, values: FormValues) =>
     request<FormSubmissionDTO>(`/api/forms/submissions/${id}`, json("PATCH", { values })),
   deleteSubmission: (id: string) => request<void>(`/api/forms/submissions/${id}`, { method: "DELETE" }),
+
+  // Key dates and facts
+  keyFacts: (workspaceId: string) => request<KeyFactsDTO>(`/api/workspaces/${workspaceId}/key-facts`),
+  addFact: (workspaceId: string, input: Partial<FactDTO> & { documentId: string; kind: string; label: string }) =>
+    request<FactDTO>(`/api/workspaces/${workspaceId}/key-facts`, json("POST", input)),
+  updateFact: (id: string, change: Partial<Pick<FactDTO, "kind" | "label" | "date" | "value" | "page" | "status" | "reminderDays">>) =>
+    request<FactDTO>(`/api/key-facts/${id}`, json("PATCH", change)),
+  deleteFact: (id: string) => request<void>(`/api/key-facts/${id}`, { method: "DELETE" }),
+  rescanFacts: (workspaceId: string, options: { documentId?: string; onlyNotRead?: boolean } = {}) =>
+    request<{ queued: number }>(`/api/workspaces/${workspaceId}/key-facts/rescan`, json("POST", options)),
+  saveFactSettings: (workspaceId: string, change: { reminderEmail?: string | null; weeklySummary?: boolean; timeZone?: string }) =>
+    request<KeyFactsSettingsDTO>(`/api/workspaces/${workspaceId}/key-facts/settings`, json("PUT", change)),
+  keyFactsExportUrl: (workspaceId: string) => `/api/workspaces/${workspaceId}/key-facts/export`,
 
   // Tasks
   listTasks: (workspaceId: string) => request<TaskDTO[]>(`/api/workspaces/${workspaceId}/tasks`),

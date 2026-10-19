@@ -39,6 +39,12 @@ export interface AnswerRequest {
   history: ChatTurn[];
   /** File names in the workspace, so the AI can tell what exists vs. what's missing. */
   documentNames: string[];
+  /**
+   * The key dates and facts register as short cited lines (see
+   * lib/data/facts.ts), so "when does X renew?" is answered with the page.
+   * Empty when nothing has been read yet.
+   */
+  keyFacts?: string;
   /** Form templates the AI may fill in (or it may draft a new one). */
   formTemplates: FormTemplateDTO[];
   /**

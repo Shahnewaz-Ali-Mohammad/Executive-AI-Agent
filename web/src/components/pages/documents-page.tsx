@@ -5,11 +5,14 @@
  *
  *   - add files (button or drag and drop anywhere on the list)
  *   - search by name, filter by kind, list or picture grid
- *   - each file: status (reading / ready / failed), pages, size, upload time,
- *     and the three-sentence digest
- *   - open (viewer on the right), ask about it (new conversation), delete
+ *   - each file: status (reading / ready / failed), type (contract, invoice …),
+ *     tags, pages, size, upload time, the three-sentence digest, its next key
+ *     date and anything it seems to be missing
+ *   - open (viewer on the right), ask about it (new conversation), its key
+ *     dates, read it again for dates, delete
  */
-import { LayoutGrid, List, MessageSquarePlus, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, CalendarDays, LayoutGrid, List, MessageSquarePlus, RefreshCw, Trash2, Upload } from "lucide-react";
+import Link from "next/link";
 import { useMemo, useState, type DragEvent } from "react";
 import { useWorkspace } from "@/components/shell/workspace-context";
 import { Button, IconButton } from "@/components/ui/button";
@@ -18,8 +21,10 @@ import { EmptyBlock, FilterChips, ListSkeleton, Page, PageHeader } from "@/compo
 import { SearchField } from "@/components/ui/search-field";
 import { api } from "@/lib/api-client";
 import { formatDateTime, formatFullDateTime } from "@/lib/dates";
+import { daysBetween, relativeDays, todayHere } from "@/lib/facts";
 import { fileTypeLabel, getExtension, isImage, isPdf } from "@/lib/file-types";
-import type { DocumentDTO } from "@/lib/types";
+import { routes } from "@/lib/routes";
+import type { DocumentDTO, FactDTO } from "@/lib/types";
 import { cn, formatBytes } from "@/lib/utils";
 
 type Filter = "all" | "images" | "pdfs" | "office" | "attention";
@@ -37,6 +42,7 @@ export function DocumentsPage() {
   const { confirm, toast } = useFeedback();
   const { documents, loading, uploading, error } = ws.documents;
   const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("all");
   const [filter, setFilter] = useState<Filter>("all");
   const [grid, setGrid] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -45,11 +51,34 @@ export function DocumentsPage() {
     () => Object.fromEntries(FILTERS.map((f) => [f.id, documents.filter(f.matches).length])) as Record<Filter, number>,
     [documents],
   );
+  const categories = useMemo(
+    () => [...new Set(documents.map((d) => d.category).filter((c): c is string => Boolean(c)))].sort(),
+    [documents],
+  );
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const matches = FILTERS.find((f) => f.id === filter)!.matches;
-    return documents.filter((doc) => matches(doc) && (!needle || doc.fileName.toLowerCase().includes(needle)));
-  }, [documents, filter, query]);
+    return documents.filter(
+      (doc) =>
+        matches(doc) &&
+        (category === "all" || doc.category === category) &&
+        (!needle ||
+          doc.fileName.toLowerCase().includes(needle) ||
+          doc.tags.some((tag) => tag.toLowerCase().includes(needle)) ||
+          doc.category?.toLowerCase().includes(needle)),
+    );
+  }, [documents, filter, query, category]);
+
+  // Each document's dates (not dismissed), soonest first.
+  const today = todayHere();
+  const factsByDocument = useMemo(() => {
+    const map = new Map<string, FactDTO[]>();
+    for (const fact of ws.keyFacts.facts) {
+      if (!fact.date || fact.status === "dismissed") continue;
+      map.set(fact.documentId, [...(map.get(fact.documentId) ?? []), fact]);
+    }
+    return map;
+  }, [ws.keyFacts.facts]);
 
   const ready = documents.filter((d) => d.status === "ready");
   const pages = ready.reduce((sum, d) => sum + (d.pageCount ?? 0), 0);
@@ -128,7 +157,7 @@ export function DocumentsPage() {
           <>
             <div className="mb-4 flex flex-wrap items-center gap-3">
               <div className="w-full sm:w-72">
-                <SearchField value={query} onChange={setQuery} placeholder="Search by file name" label="Search documents" />
+                <SearchField value={query} onChange={setQuery} placeholder="Search by name or tag" label="Search documents" />
               </div>
               <div className="min-w-0 flex-1">
                 <FilterChips
@@ -145,6 +174,21 @@ export function DocumentsPage() {
                   }))}
                 />
               </div>
+              {categories.length > 0 && (
+                <select
+                  aria-label="Type of document"
+                  className="rounded-md border border-rule bg-surface px-2 py-1.5 text-xs text-ink"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                >
+                  <option value="all">All types</option>
+                  {categories.map((c) => (
+                    <option key={c} value={c}>
+                      {c} ({documents.filter((d) => d.category === c).length})
+                    </option>
+                  ))}
+                </select>
+              )}
               {counts.images > 0 && (
                 <IconButton
                   aria-label={grid ? "Show as a list" : "Show images as a grid"}
@@ -186,9 +230,15 @@ export function DocumentsPage() {
                   <DocumentRow
                     key={doc.id}
                     document={doc}
+                    facts={factsByDocument.get(doc.id) ?? []}
+                    today={today}
+                    keyDatesHref={routes.keyDates(ws.workspaceId, doc.id)}
                     open={openDocumentId === doc.id}
                     onOpen={() => ws.openPanel({ kind: "source", documentId: doc.id, page: 1 })}
                     onAsk={() => ws.newConversation(`About ${doc.fileName}: `)}
+                    onReadAgain={async () => {
+                      if (await ws.documents.rescan(doc.id)) toast("Reading it again for dates and facts");
+                    }}
                     onDelete={() => void remove(doc)}
                   />
                 ))}
@@ -203,17 +253,27 @@ export function DocumentsPage() {
 
 function DocumentRow({
   document: doc,
+  facts,
+  today,
+  keyDatesHref,
   open,
   onOpen,
   onAsk,
+  onReadAgain,
   onDelete,
 }: {
   document: DocumentDTO;
+  facts: FactDTO[];
+  today: string;
+  keyDatesHref: string;
   open: boolean;
   onOpen: () => void;
   onAsk: () => void;
+  onReadAgain: () => void;
   onDelete: () => void;
 }) {
+  const next = facts.find((f) => daysBetween(today, f.date!) >= 0);
+  const readingFacts = doc.status === "ready" && (doc.factsStatus === "pending" || doc.factsStatus === "running");
   return (
     <li className={cn("group flex gap-3 px-4 py-3.5 transition-colors", open ? "bg-ledger-soft/50" : "hover:bg-paper")}>
       <button type="button" onClick={onOpen} className="shrink-0 self-start" aria-label={`Open ${doc.fileName}`}>
@@ -230,6 +290,7 @@ function DocumentRow({
             {doc.fileName}
           </button>
           <StatusBadge document={doc} />
+          {doc.category && <span className="rounded-full bg-paper px-2 py-0.5 text-[0.7rem] text-slate">{doc.category}</span>}
         </div>
         <p className="mt-0.5 text-xs text-slate tabular-nums">
           {fileTypeLabel(doc.mimeType)}
@@ -240,11 +301,53 @@ function DocumentRow({
         </p>
         {doc.status === "failed" && doc.error && <p className="mt-1.5 text-sm text-alert">{doc.error}</p>}
         {doc.summary && <p className="mt-1.5 line-clamp-2 font-serif text-[0.95rem] leading-snug text-ink/90">{doc.summary}</p>}
+        {(facts.length > 0 || readingFacts || doc.tags.length > 0) && (
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+            {readingFacts ? (
+              <span className="flex items-center gap-1.5 text-amber">
+                <span className="size-1.5 animate-pulse rounded-full bg-amber" aria-hidden />
+                Reading key dates…
+              </span>
+            ) : (
+              facts.length > 0 && (
+                <Link href={keyDatesHref} className="flex items-center gap-1 text-ledger underline-offset-2 hover:underline">
+                  <CalendarDays className="size-3.5" aria-hidden />
+                  {facts.length} key date{facts.length > 1 ? "s" : ""}
+                  {next && (
+                    <span className="text-slate">
+                      {" "}
+                      · next: {next.label} {relativeDays(daysBetween(today, next.date!))}
+                    </span>
+                  )}
+                </Link>
+              )
+            )}
+            {doc.tags.slice(0, 5).map((tag) => (
+              <span key={tag} className="rounded-full border border-rule px-2 py-0.5 text-slate">
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+        {doc.warnings.length > 0 && (
+          <p className="mt-1.5 flex items-start gap-1.5 text-xs text-amber">
+            <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
+            <span>{doc.warnings.join(" · ")}</span>
+          </p>
+        )}
+        {doc.status === "ready" && doc.factsStatus === "failed" && (
+          <p className="mt-1.5 text-xs text-alert">Key dates couldn&apos;t be read. Use “Read again”.</p>
+        )}
       </div>
       <div className="flex shrink-0 items-start gap-0.5 opacity-100 transition-opacity lg:opacity-0 lg:group-focus-within:opacity-100 lg:group-hover:opacity-100">
         {doc.status === "ready" && (
           <IconButton aria-label={`Ask about ${doc.fileName}`} onClick={onAsk}>
             <MessageSquarePlus className="size-4" />
+          </IconButton>
+        )}
+        {doc.status === "ready" && (
+          <IconButton aria-label={`Read ${doc.fileName} again for key dates`} onClick={onReadAgain} disabled={readingFacts}>
+            <RefreshCw className={cn("size-4", readingFacts && "animate-spin")} />
           </IconButton>
         )}
         <IconButton aria-label={`Delete ${doc.fileName}`} onClick={onDelete} className="hover:text-alert">

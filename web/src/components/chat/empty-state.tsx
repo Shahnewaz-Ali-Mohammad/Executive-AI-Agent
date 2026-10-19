@@ -15,7 +15,7 @@ const QUESTIONS: { question: string; mode: ResponseModeId }[] = [
   { question: "Brief me on these documents in two minutes.", mode: "brief" },
   { question: "What are the biggest risks, and where do the documents contradict each other?", mode: "risk_scan" },
   { question: "What will the board most likely push back on?", mode: "prep_me" },
-  { question: "What important data is missing from these documents?", mode: "risk_scan" },
+  { question: "What renews, expires or falls due in the next 90 days, and what notice do I need to give?", mode: "brief" },
 ];
 
 const ACTIONS: { label: string; hint: string; draft: string; icon: ReactNode }[] = [

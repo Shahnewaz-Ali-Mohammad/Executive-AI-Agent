@@ -4,18 +4,20 @@
  *   create_task      "Ask Rahim to send the Q3 numbers by Friday"
  *   create_schedule  "Every Monday at 8 send me a risk scan of the board pack"
  *                    "Remind me tomorrow at 3pm to call the bank"
+ *   open_document    "Show me the Northwind contract" → a card that opens it
  *
  * Like forms, a tool call only becomes a card in the chat. Nothing is created
  * until the CEO presses the card's button; the n8n scheduler then runs it.
  */
 import "server-only";
-import { taskInputSchema, scheduleInputSchema, type ScheduleCard, type TaskCard } from "@/lib/cards";
+import { taskInputSchema, scheduleInputSchema, type DocumentCard, type ScheduleCard, type TaskCard } from "@/lib/cards";
 import { RESPONSE_MODES } from "@/lib/response-modes";
 import { describeRecurrence, FREQUENCIES, localParts, WEEKDAY_NAMES } from "@/lib/schedule";
 import type { ChatTool } from "./client";
 
 export const CREATE_TASK_TOOL = "create_task";
 export const CREATE_SCHEDULE_TOOL = "create_schedule";
+export const OPEN_DOCUMENT_TOOL = "open_document";
 
 const nullableString = (description: string) => ({ type: ["string", "null"], description });
 
@@ -75,8 +77,27 @@ const createScheduleTool: ChatTool = {
   },
 };
 
-export function actionTools(): ChatTool[] {
-  return [createTaskTool, createScheduleTool];
+function openDocumentTool(documentNames: string[]): ChatTool {
+  return {
+    name: OPEN_DOCUMENT_TOOL,
+    description:
+      "Show the CEO one of the workspace's documents when they ask to see, open, pull up or find a document " +
+      "(e.g. 'show me the Northwind contract', 'where is the lease?'). Also answer in one or two sentences.",
+    parameters: {
+      type: "object",
+      properties: {
+        file_name: { type: "string", enum: documentNames, description: "The document, exactly as listed" },
+        page: { type: ["integer", "null"], description: "The page that answers the question, if one does; else null" },
+      },
+      required: ["file_name", "page"],
+      additionalProperties: false,
+    },
+  };
+}
+
+export function actionTools(documentNames: string[] = []): ChatTool[] {
+  const tools = [createTaskTool, createScheduleTool];
+  return documentNames.length > 0 ? [...tools, openDocumentTool(documentNames)] : tools;
 }
 
 /** How the model should use them (added to the system prompt). */
@@ -96,6 +117,9 @@ You can also propose tasks, scheduled reports and reminders with tools. The CEO 
 - Only use an email address the CEO actually gave. Never invent names, emails or dates.
 - If the conversation already shows a draft ([Task (not created yet) …] or [Scheduled … (not scheduled yet) …])
   and the CEO changes something, call the tool again with ALL values: the earlier ones plus the change.
+- "Show me / open / pull up / where is <document>" → ${OPEN_DOCUMENT_TOOL} with the matching file name (and the page
+  if the question is about one part, e.g. the renewal clause). Pick the file from the document list, the register
+  and the excerpts; if several could match, pick the best and name the others in your sentence.
 - After the tool call write one short sentence; ask for anything essential that is missing (e.g. when it is due).`;
 }
 
@@ -108,12 +132,22 @@ function lowerFirst(text: string): string {
 export function actionCardFromToolCall(
   call: { name: string; arguments: string },
   timeZone: string,
-): { card: TaskCard | ScheduleCard; text: string } | null {
+): { card: TaskCard | ScheduleCard | DocumentCard; text: string } | null {
   let args: Record<string, unknown>;
   try {
     args = JSON.parse(call.arguments || "{}") as Record<string, unknown>;
   } catch {
     return null;
+  }
+
+  if (call.name === OPEN_DOCUMENT_TOOL) {
+    if (typeof args.file_name !== "string" || !args.file_name) return null;
+    const page = typeof args.page === "number" && args.page > 0 ? Math.floor(args.page) : null;
+    // The chat route fills in the id, category, tags and dates from the database.
+    return {
+      card: { kind: "document", fileName: args.file_name, documentId: null, page, category: null, tags: [], facts: [] },
+      text: `Here is **${args.file_name}**.`,
+    };
   }
 
   if (call.name === CREATE_TASK_TOOL) {

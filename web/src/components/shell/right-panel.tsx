@@ -46,6 +46,7 @@ export function RightPanel({ panel }: { panel: Panel }) {
           onOpenCitation={(documentId, page) => ws.openPanel({ kind: "source", documentId, page })}
           onOpenElsewhere={(otherWorkspaceId) => router.push(notificationHref(otherWorkspaceId, panel.notificationId))}
           onOpenTasks={() => router.push(routes.tasks(workspaceId))}
+          onOpenKeyDates={() => router.push(routes.keyDates(workspaceId))}
           onOpened={ws.notifications.markedRead}
           onDelete={async (id) => {
             await ws.notifications.remove(id);
